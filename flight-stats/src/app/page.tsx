@@ -726,44 +726,53 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleGoogleSignIn() {
+  function handleGoogleSignIn() {
     if (!allowedEmail) {
-      setStatus("NEXT_PUBLIC_ALLOWED_EMAIL não está definida na Vercel.");
+      setStatus("NEXT_PUBLIC_ALLOWED_EMAIL não está definida.");
       return;
     }
+
+    const provider = new GoogleAuthProvider();
+
+    provider.setCustomParameters({
+      prompt: "select_account",
+    });
+
+    // Important for Firefox:
+    // open the Firebase popup immediately from the click event,
+    // before any state updates that may consume the user activation.
+    const loginPromise = signInWithPopup(auth, provider);
 
     setLoading(true);
     setStatus("A abrir login Google...");
 
-    try {
-      const provider = new GoogleAuthProvider();
+    void loginPromise
+      .then(async (result) => {
+        if (result.user.email !== allowedEmail) {
+          await signOut(auth);
+          setUser(null);
+          setStatus("Este email não está autorizado a usar esta app.");
+          return;
+        }
 
-      provider.setCustomParameters({
-        prompt: "select_account",
+        setUser(result.user);
+        setStatus("Sessão Google iniciada.");
+        await loadFlights(result.user);
+      })
+      .catch((error) => {
+        const code =
+          typeof error === "object" && error !== null && "code" in error
+            ? String((error as { code?: unknown }).code ?? "")
+            : "";
+
+        const message =
+          error instanceof Error ? error.message : "Erro desconhecido.";
+
+        setStatus(`Erro no login Google${code ? ` (${code})` : ""}: ${message}`);
+      })
+      .finally(() => {
+        setLoading(false);
       });
-
-      const result = await signInWithPopup(auth, provider);
-
-      if (result.user.email !== allowedEmail) {
-        await signOut(auth);
-        setUser(null);
-        setStatus("Este email não está autorizado a usar esta app.");
-        return;
-      }
-
-      setUser(result.user);
-      setStatus("Sessão Google iniciada.");
-      await loadFlights(result.user);
-    } catch (error) {
-      const code = firebaseErrorCode(error);
-      const message =
-        error instanceof Error ? error.message : "Erro desconhecido.";
-
-      console.error("Google login error", error);
-      setStatus(`Erro no login Google${code ? ` (${code})` : ""}: ${message}`);
-    } finally {
-      setLoading(false);
-    }
   }
 
   async function handleSignOut() {
