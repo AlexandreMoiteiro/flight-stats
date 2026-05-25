@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 import type { User } from "firebase/auth";
 import {
+  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
+  signInWithPopup,
   signInWithRedirect,
   signOut,
 } from "firebase/auth";
@@ -53,6 +55,14 @@ import {
 import { auth, db, type Flight, type FlightInsert } from "@/lib/firebase";
 
 const allowedEmail = process.env.NEXT_PUBLIC_ALLOWED_EMAIL ?? "";
+
+function firebaseErrorCode(error: unknown): string {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    return String((error as { code?: unknown }).code ?? "");
+  }
+
+  return "";
+}
 
 type CsvRow = Record<string, string | number | boolean | null | undefined>;
 
@@ -687,6 +697,15 @@ export default function Home() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
+    void getRedirectResult(auth).catch((error) => {
+      const message =
+        error instanceof Error ? error.message : "Erro desconhecido.";
+
+      setStatus(`Erro no retorno do login Google: ${message}`);
+      setLoading(false);
+      setAuthReady(true);
+    });
+
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
 
@@ -698,7 +717,9 @@ export default function Home() {
       }
 
       if (currentUser.email !== allowedEmail) {
-        setStatus("Esta app está limitada ao email autorizado.");
+        await signOut(auth);
+        setUser(null);
+        setStatus("Este email não está autorizado a usar esta app.");
         setLoading(false);
         setAuthReady(true);
         return;
@@ -718,17 +739,41 @@ export default function Home() {
 
   async function handleGoogleSignIn() {
     setLoading(true);
-    setStatus("A redirecionar para login Google...");
+    setStatus("A abrir login Google...");
+
+    const provider = new GoogleAuthProvider();
+
+    provider.setCustomParameters({
+      prompt: "select_account",
+    });
 
     try {
-      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
 
-      provider.setCustomParameters({
-        prompt: "select_account",
-      });
+      if (result.user.email !== allowedEmail) {
+        await signOut(auth);
+        setUser(null);
+        setStatus("Este email não está autorizado a usar esta app.");
+        setLoading(false);
+        return;
+      }
 
-      await signInWithRedirect(auth, provider);
+      setUser(result.user);
+      setStatus("Sessão Google iniciada.");
+      await loadFlights(result.user);
+      setLoading(false);
     } catch (error) {
+      const code = firebaseErrorCode(error);
+
+      if (
+        code === "auth/popup-blocked" ||
+        code === "auth/cancelled-popup-request"
+      ) {
+        setStatus("Popup bloqueado. A redirecionar para o Google...");
+        await signInWithRedirect(auth, provider);
+        return;
+      }
+
       const message =
         error instanceof Error ? error.message : "Erro desconhecido.";
 
