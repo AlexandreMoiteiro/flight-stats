@@ -4,11 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
 import type { User } from "firebase/auth";
 import {
-  getRedirectResult,
   GoogleAuthProvider,
   onAuthStateChanged,
   signInWithPopup,
-  signInWithRedirect,
   signOut,
 } from "firebase/auth";
 import {
@@ -697,15 +695,6 @@ export default function Home() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    void getRedirectResult(auth).catch((error) => {
-      const message =
-        error instanceof Error ? error.message : "Erro desconhecido.";
-
-      setStatus(`Erro no retorno do login Google: ${message}`);
-      setLoading(false);
-      setAuthReady(true);
-    });
-
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
 
@@ -738,46 +727,41 @@ export default function Home() {
   }, []);
 
   async function handleGoogleSignIn() {
+    if (!allowedEmail) {
+      setStatus("NEXT_PUBLIC_ALLOWED_EMAIL não está definida na Vercel.");
+      return;
+    }
+
     setLoading(true);
     setStatus("A abrir login Google...");
 
-    const provider = new GoogleAuthProvider();
-
-    provider.setCustomParameters({
-      prompt: "select_account",
-    });
-
     try {
+      const provider = new GoogleAuthProvider();
+
+      provider.setCustomParameters({
+        prompt: "select_account",
+      });
+
       const result = await signInWithPopup(auth, provider);
 
       if (result.user.email !== allowedEmail) {
         await signOut(auth);
         setUser(null);
         setStatus("Este email não está autorizado a usar esta app.");
-        setLoading(false);
         return;
       }
 
       setUser(result.user);
       setStatus("Sessão Google iniciada.");
       await loadFlights(result.user);
-      setLoading(false);
     } catch (error) {
       const code = firebaseErrorCode(error);
-
-      if (
-        code === "auth/popup-blocked" ||
-        code === "auth/cancelled-popup-request"
-      ) {
-        setStatus("Popup bloqueado. A redirecionar para o Google...");
-        await signInWithRedirect(auth, provider);
-        return;
-      }
-
       const message =
         error instanceof Error ? error.message : "Erro desconhecido.";
 
-      setStatus(`Erro no login Google: ${message}`);
+      console.error("Google login error", error);
+      setStatus(`Erro no login Google${code ? ` (${code})` : ""}: ${message}`);
+    } finally {
       setLoading(false);
     }
   }
