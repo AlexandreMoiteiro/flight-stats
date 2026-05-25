@@ -6,7 +6,7 @@ import type { User } from "firebase/auth";
 import {
   GoogleAuthProvider,
   onAuthStateChanged,
-  signInWithPopup,
+  signInWithRedirect,
   signOut,
 } from "firebase/auth";
 import {
@@ -718,7 +718,7 @@ export default function Home() {
 
   async function handleGoogleSignIn() {
     setLoading(true);
-    setStatus("A abrir login Google...");
+    setStatus("A redirecionar para login Google...");
 
     try {
       const provider = new GoogleAuthProvider();
@@ -727,24 +727,12 @@ export default function Home() {
         prompt: "select_account",
       });
 
-      const result = await signInWithPopup(auth, provider);
-
-      if (result.user.email !== allowedEmail) {
-        await signOut(auth);
-        setUser(null);
-        setStatus("Este email não está autorizado a usar esta app.");
-        return;
-      }
-
-      setUser(result.user);
-      setStatus("Sessão Google iniciada.");
-      await loadFlights(result.user);
+      await signInWithRedirect(auth, provider);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Erro desconhecido.";
 
       setStatus(`Erro no login Google: ${message}`);
-    } finally {
       setLoading(false);
     }
   }
