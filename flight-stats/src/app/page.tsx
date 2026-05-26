@@ -1,23 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Papa from "papaparse";
-import type { User } from "firebase/auth";
-import {
-  GoogleAuthProvider,
-  onAuthStateChanged,
-  signInWithPopup,
-  signOut,
-} from "firebase/auth";
-import {
-  collection,
-  doc,
-  getDocs,
-  orderBy,
-  query,
-  serverTimestamp,
-  writeBatch,
-} from "firebase/firestore";
 import {
   Area,
   AreaChart,
@@ -40,7 +25,6 @@ import {
   Clock3,
   Download,
   Gauge,
-  LogOut,
   Moon,
   Plane,
   PlaneLanding,
@@ -50,17 +34,12 @@ import {
   Upload,
   UserRound,
 } from "lucide-react";
-import { auth, db, type Flight, type FlightInsert } from "@/lib/firebase";
-
-const allowedEmail = process.env.NEXT_PUBLIC_ALLOWED_EMAIL ?? "";
-
-function firebaseErrorCode(error: unknown): string {
-  if (typeof error === "object" && error !== null && "code" in error) {
-    return String((error as { code?: unknown }).code ?? "");
-  }
-
-  return "";
-}
+import {
+  supabase,
+  type Flight,
+  type FlightDraft,
+  type FlightUpsert,
+} from "@/lib/supabase";
 
 type CsvRow = Record<string, string | number | boolean | null | undefined>;
 
@@ -76,11 +55,14 @@ type ChartRow = {
   value?: number;
 };
 
-const chartColors = ["#0f172a", "#64748b", "#94a3b8", "#cbd5e1", "#0284c7", "#0369a1"];
-
-function getFlightsCollection(userId: string) {
-  return collection(db, "users", userId, "flights");
-}
+const chartColors = [
+  "#0f172a",
+  "#64748b",
+  "#94a3b8",
+  "#cbd5e1",
+  "#0284c7",
+  "#0369a1",
+];
 
 function cleanText(value: unknown): string | null {
   const text = String(value ?? "").trim();
@@ -91,15 +73,18 @@ function cleanText(value: unknown): string | null {
 function numberOrZero(value: unknown): number {
   const text = String(value ?? "").trim().replace(",", ".");
   if (!text || text.toLowerCase() === "nan") return 0;
+
   const parsed = Number(text);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function booleanOrNull(value: unknown): boolean | null {
   const text = String(value ?? "").trim().toLowerCase();
+
   if (!text) return null;
   if (["true", "yes", "sim", "1"].includes(text)) return true;
   if (["false", "no", "não", "nao", "0"].includes(text)) return false;
+
   return null;
 }
 
@@ -119,6 +104,7 @@ function timeToMinutes(value: unknown): number {
   }
 
   const decimalHours = Number(text.replace(",", "."));
+
   if (!Number.isFinite(decimalHours)) return 0;
 
   return Math.round(decimalHours * 60);
@@ -126,12 +112,15 @@ function timeToMinutes(value: unknown): number {
 
 function parseDateDMY(value: unknown): string | null {
   const text = String(value ?? "").trim();
+
   if (!text) return null;
 
   const parts = text.split(".");
+
   if (parts.length !== 3) return null;
 
   const [day, month, year] = parts;
+
   if (!day || !month || !year) return null;
 
   return `${year.padStart(4, "20")}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
@@ -141,6 +130,7 @@ function formatDate(date: string | null | undefined): string {
   if (!date) return "—";
 
   const [year, month, day] = date.split("-");
+
   if (!year || !month || !day) return date;
 
   return `${day}/${month}/${year}`;
@@ -174,6 +164,10 @@ function uniqueSorted(values: Array<string | null | undefined>) {
   );
 }
 
+function jsonSafe(value: unknown): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(value ?? {})) as Record<string, unknown>;
+}
+
 function simpleHash(value: string): string {
   let hash = 0;
 
@@ -185,19 +179,32 @@ function simpleHash(value: string): string {
   return Math.abs(hash).toString(36);
 }
 
-function flightDocumentId(row: FlightInsert): string {
-  // Stable duplicate key:
-  // These fields identify the flight itself.
-  // If you later correct total time, PIC time, landings or remarks,
-  // the same Firestore document is updated instead of creating a duplicate.
-  const key = [
-    row.date,
-    row.registration,
-    row.departure_airport_name,
-    row.off_block,
-    row.arrival_airport_name,
-    row.on_block,
-  ]
+function flightDocumentId(row: FlightDraft): string {
+  const hasFlightIdentity =
+    row.registration ||
+    row.departure_airport_name ||
+    row.arrival_airport_name ||
+    row.off_block ||
+    row.on_block;
+
+  const keyParts = hasFlightIdentity
+    ? [
+        row.date,
+        row.registration,
+        row.departure_airport_name,
+        row.off_block,
+        row.arrival_airport_name,
+        row.on_block,
+      ]
+    : [
+        row.date,
+        row.type_of_aircraft,
+        row.name_of_pilot_in_command,
+        row.synthetic_training_minutes,
+        row.remarks_and_endorsements,
+      ];
+
+  const key = keyParts
     .map((value) => String(value ?? "").trim().toLowerCase())
     .join("|");
 
@@ -211,7 +218,7 @@ function aircraftFamily(registration: string | null | undefined) {
   return "Outro";
 }
 
-function mapCsvRowToFlight(row: CsvRow): FlightInsert {
+function mapCsvRowToFlight(row: CsvRow): FlightDraft {
   return {
     date: parseDateDMY(row.date),
     departure_airport_name: cleanText(row.departure_airport_name),
@@ -250,8 +257,7 @@ function mapCsvRowToFlight(row: CsvRow): FlightInsert {
     include_in_ftl: booleanOrNull(row.include_in_ftl),
     if_time_minutes: timeToMinutes(row.if_time),
 
-    raw: row,
-    created_at: new Date().toISOString(),
+    raw: jsonSafe(row),
   };
 }
 
@@ -362,18 +368,13 @@ function StatCard({
   );
 }
 
-function MiniMetric({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl bg-slate-50 p-4">
       <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
         {label}
       </p>
+
       <p className="mt-2 text-lg font-semibold text-slate-950">{value}</p>
     </div>
   );
@@ -436,6 +437,7 @@ function SimpleBarChart({
       <ResponsiveContainer>
         <BarChart data={data} margin={{ top: 8, right: 8, bottom: 44, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+
           <XAxis
             dataKey="label"
             tick={{ fill: "#64748b", fontSize: 12 }}
@@ -443,12 +445,15 @@ function SimpleBarChart({
             textAnchor="end"
             interval={0}
           />
+
           <YAxis tick={{ fill: "#64748b", fontSize: 12 }} />
+
           <Tooltip
             cursor={{ fill: "#f8fafc" }}
             contentStyle={tooltipStyle()}
             formatter={(value) => [`${value}${suffix}`, ""]}
           />
+
           <Bar dataKey={dataKey as string} fill="#0f172a" radius={[8, 8, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
@@ -476,18 +481,22 @@ function HorizontalBarChart({
           margin={{ top: 8, right: 20, bottom: 8, left: 42 }}
         >
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+
           <XAxis type="number" tick={{ fill: "#64748b", fontSize: 12 }} />
+
           <YAxis
             dataKey="label"
             type="category"
             width={90}
             tick={{ fill: "#64748b", fontSize: 12 }}
           />
+
           <Tooltip
             cursor={{ fill: "#f8fafc" }}
             contentStyle={tooltipStyle()}
             formatter={(value) => [`${value}${suffix}`, ""]}
           />
+
           <Bar dataKey={dataKey as string} fill="#0f172a" radius={[0, 8, 8, 0]} />
         </BarChart>
       </ResponsiveContainer>
@@ -503,10 +512,15 @@ function MonthlyChart({ data }: { data: ChartRow[] }) {
       <ResponsiveContainer>
         <BarChart data={data} margin={{ top: 8, right: 8, bottom: 20, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+
           <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} />
+
           <YAxis tick={{ fill: "#64748b", fontSize: 12 }} />
+
           <Tooltip cursor={{ fill: "#f8fafc" }} contentStyle={tooltipStyle()} />
+
           <Bar dataKey="voo" stackId="a" name="Voo" fill="#0f172a" />
+
           <Bar
             dataKey="simulador"
             stackId="a"
@@ -528,9 +542,13 @@ function CumulativeChart({ data }: { data: ChartRow[] }) {
       <ResponsiveContainer>
         <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 20, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+
           <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} />
+
           <YAxis tick={{ fill: "#64748b", fontSize: 12 }} />
+
           <Tooltip contentStyle={tooltipStyle()} />
+
           <Area
             type="monotone"
             dataKey="total"
@@ -553,9 +571,13 @@ function MonthlyFlightsChart({ data }: { data: ChartRow[] }) {
       <ResponsiveContainer>
         <LineChart data={data} margin={{ top: 8, right: 8, bottom: 20, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+
           <XAxis dataKey="label" tick={{ fill: "#64748b", fontSize: 12 }} />
+
           <YAxis tick={{ fill: "#64748b", fontSize: 12 }} />
+
           <Tooltip contentStyle={tooltipStyle()} />
+
           <Line
             type="monotone"
             dataKey="voos"
@@ -564,6 +586,7 @@ function MonthlyFlightsChart({ data }: { data: ChartRow[] }) {
             strokeWidth={2.5}
             dot={{ r: 3 }}
           />
+
           <Line
             type="monotone"
             dataKey="aterragens"
@@ -597,9 +620,13 @@ function PieStats({ data }: { data: ChartRow[] }) {
               nameKey="label"
             >
               {filtered.map((entry, index) => (
-                <Cell key={entry.label} fill={chartColors[index % chartColors.length]} />
+                <Cell
+                  key={entry.label}
+                  fill={chartColors[index % chartColors.length]}
+                />
               ))}
             </Pie>
+
             <Tooltip contentStyle={tooltipStyle()} />
           </PieChart>
         </ResponsiveContainer>
@@ -614,10 +641,13 @@ function PieStats({ data }: { data: ChartRow[] }) {
             <span className="flex items-center gap-2 text-slate-600">
               <span
                 className="h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: chartColors[index % chartColors.length] }}
+                style={{
+                  backgroundColor: chartColors[index % chartColors.length],
+                }}
               />
               {item.label}
             </span>
+
             <span className="font-medium text-slate-950">
               {formatMinutes(item.value)}
             </span>
@@ -639,51 +669,9 @@ function LoadingScreen() {
   );
 }
 
-function LoginScreen({
-  status,
-  loading,
-  onLogin,
-}: {
-  status: string;
-  loading: boolean;
-  onLogin: () => void;
-}) {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6 py-10">
-      <section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8">
-        <div className="mb-8 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-white">
-          <Plane size={22} />
-        </div>
-
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-950">
-          Flight Stats
-        </h1>
-
-        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-            Estado
-          </p>
-          <p className="mt-2 text-sm text-slate-700">{status}</p>
-        </div>
-
-        <button
-          onClick={onLogin}
-          disabled={loading}
-          className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {loading ? "A entrar..." : "Entrar com Google"}
-          <ArrowRight size={16} />
-        </button>
-      </section>
-    </main>
-  );
-}
-
 export default function Home() {
-  const [authReady, setAuthReady] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-
-  const [status, setStatus] = useState("A carregar...");
+  const [ready, setReady] = useState(false);
+  const [status, setStatus] = useState("A carregar dados...");
   const [loading, setLoading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
@@ -694,124 +682,19 @@ export default function Home() {
   const [selectedAircraft, setSelectedAircraft] = useState("all");
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-
-      if (!currentUser) {
-        setStatus("Sem sessão iniciada.");
-        setLoading(false);
-        setAuthReady(true);
-        return;
-      }
-
-      if (currentUser.email !== allowedEmail) {
-        await signOut(auth);
-        setUser(null);
-        setStatus("Este email não está autorizado a usar esta app.");
-        setLoading(false);
-        setAuthReady(true);
-        return;
-      }
-
-      setStatus("Sessão Google iniciada.");
-      await loadFlights(currentUser);
-      setAuthReady(true);
-    });
-
-    return () => unsubscribe();
-
-    // This effect intentionally subscribes once to Firebase Auth.
-    // loadFlights receives currentUser directly, so it does not depend on stale user state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function handleGoogleSignIn() {
-    if (!allowedEmail) {
-      setStatus("NEXT_PUBLIC_ALLOWED_EMAIL não está definida.");
-      return;
-    }
-
-    const provider = new GoogleAuthProvider();
-
-    provider.setCustomParameters({
-      prompt: "select_account",
-    });
-
-    // Important for Firefox:
-    // open the Firebase popup immediately from the click event,
-    // before any state updates that may consume the user activation.
-    const loginPromise = signInWithPopup(auth, provider);
-
-    setLoading(true);
-    setStatus("A abrir login Google...");
-
-    void loginPromise
-      .then(async (result) => {
-        if (result.user.email !== allowedEmail) {
-          await signOut(auth);
-          setUser(null);
-          setStatus("Este email não está autorizado a usar esta app.");
-          return;
-        }
-
-        setUser(result.user);
-        setStatus("Sessão Google iniciada.");
-        await loadFlights(result.user);
-      })
-      .catch((error) => {
-        const code =
-          typeof error === "object" && error !== null && "code" in error
-            ? String((error as { code?: unknown }).code ?? "")
-            : "";
-
-        const message =
-          error instanceof Error ? error.message : "Erro desconhecido.";
-
-        setStatus(`Erro no login Google${code ? ` (${code})` : ""}: ${message}`);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }
-
-  async function handleSignOut() {
-    setLoading(true);
-    setStatus("A terminar sessão...");
-
-    try {
-      await signOut(auth);
-      setUser(null);
-      setFlights([]);
-      setStatus("Sessão terminada.");
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Erro desconhecido.";
-
-      setStatus(`Erro ao sair: ${message}`);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function loadFlights(currentUser = user) {
-    if (!currentUser) return;
-
+  const loadFlights = useCallback(async () => {
     setLoading(true);
     setStatus("A carregar voos...");
 
     try {
-      const flightsQuery = query(
-        getFlightsCollection(currentUser.uid),
-        orderBy("date", "desc"),
-      );
+      const { data, error } = await supabase
+        .from("flights")
+        .select("*")
+        .order("date", { ascending: false, nullsFirst: false });
 
-      const snapshot = await getDocs(flightsQuery);
+      if (error) throw error;
 
-      const loadedFlights = snapshot.docs.map((documentSnapshot) => ({
-        id: documentSnapshot.id,
-        ...(documentSnapshot.data() as Omit<Flight, "id">),
-      }));
+      const loadedFlights = (data ?? []) as Flight[];
 
       setFlights(loadedFlights);
       setStatus(`${loadedFlights.length} registo(s) carregado(s).`);
@@ -822,12 +705,19 @@ export default function Home() {
       setStatus(`Erro ao carregar voos: ${message}`);
     } finally {
       setLoading(false);
+      setReady(true);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadFlights();
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, [loadFlights]);
 
   async function deleteAllFlights() {
-    if (!user) return;
-
     const confirmed = window.confirm(
       "Isto vai apagar todos os voos guardados nesta app. Queres continuar?",
     );
@@ -838,18 +728,12 @@ export default function Home() {
     setStatus("A apagar voos...");
 
     try {
-      const snapshot = await getDocs(getFlightsCollection(user.uid));
+      const { error } = await supabase
+        .from("flights")
+        .delete()
+        .neq("id", "__never__");
 
-      for (let i = 0; i < snapshot.docs.length; i += 450) {
-        const batch = writeBatch(db);
-        const chunk = snapshot.docs.slice(i, i + 450);
-
-        chunk.forEach((documentSnapshot) => {
-          batch.delete(documentSnapshot.ref);
-        });
-
-        await batch.commit();
-      }
+      if (error) throw error;
 
       setFlights([]);
       setStatus("Todos os voos foram apagados.");
@@ -863,37 +747,25 @@ export default function Home() {
     }
   }
 
-  async function appendFlightsWithRows(rows: FlightInsert[]) {
-    if (!user) throw new Error("Tens de iniciar sessão primeiro.");
-
+  async function appendFlightsWithRows(rows: FlightDraft[]) {
     for (let i = 0; i < rows.length; i += 450) {
-      const batch = writeBatch(db);
       const chunk = rows.slice(i, i + 450);
 
-      chunk.forEach((row) => {
-        const documentId = flightDocumentId(row);
-        const flightRef = doc(getFlightsCollection(user.uid), documentId);
+      const upserts: FlightUpsert[] = chunk.map((row) => ({
+        id: flightDocumentId(row),
+        ...row,
+        updated_at: new Date().toISOString(),
+      }));
 
-        batch.set(
-          flightRef,
-          {
-            ...row,
-            updated_at: serverTimestamp(),
-          },
-          { merge: true },
-        );
-      });
+      const { error } = await supabase
+        .from("flights")
+        .upsert(upserts, { onConflict: "id" });
 
-      await batch.commit();
+      if (error) throw error;
     }
   }
 
   async function handleCsvUpload(file: File) {
-    if (!user) {
-      setStatus("Tens de iniciar sessão primeiro.");
-      return;
-    }
-
     setIsImporting(true);
     setStatus("A ler CSV...");
 
@@ -920,7 +792,7 @@ export default function Home() {
           setStatus(`A acrescentar/atualizar ${parsedRows.length} voo(s)...`);
 
           await appendFlightsWithRows(parsedRows);
-          await loadFlights(user);
+          await loadFlights();
 
           setStatus(`${parsedRows.length} voo(s) acrescentado(s) ou atualizado(s).`);
         } catch (error) {
@@ -982,7 +854,9 @@ export default function Home() {
       flights.map((flight) => flight.registration),
     );
 
-    const aircraft = uniqueSorted(flights.map((flight) => flight.type_of_aircraft));
+    const aircraft = uniqueSorted(
+      flights.map((flight) => flight.type_of_aircraft),
+    );
 
     return {
       years,
@@ -991,42 +865,47 @@ export default function Home() {
     };
   }, [flights]);
 
-  const filteredFlights = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
+  const normalizedSearch = search.trim().toLowerCase();
 
-    return flights.filter((flight) => {
-      const matchesYear =
-        selectedYear === "all" || flight.date?.startsWith(selectedYear);
+  const filteredFlights = flights.filter((flight) => {
+    const matchesYear =
+      selectedYear === "all" || flight.date?.startsWith(selectedYear);
 
-      const matchesRegistration =
-        selectedRegistration === "all" ||
-        flight.registration === selectedRegistration;
+    const matchesRegistration =
+      selectedRegistration === "all" ||
+      flight.registration === selectedRegistration;
 
-      const matchesAircraft =
-        selectedAircraft === "all" || flight.type_of_aircraft === selectedAircraft;
+    const matchesAircraft =
+      selectedAircraft === "all" ||
+      flight.type_of_aircraft === selectedAircraft;
 
-      const searchableText = [
-        flight.date,
-        flight.departure_airport_name,
-        flight.arrival_airport_name,
-        flight.type_of_aircraft,
-        flight.registration,
-        flight.name_of_pilot_in_command,
-        flight.remarks_and_endorsements,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
+    const searchableText = [
+      flight.date,
+      flight.departure_airport_name,
+      flight.arrival_airport_name,
+      flight.type_of_aircraft,
+      flight.registration,
+      flight.name_of_pilot_in_command,
+      flight.remarks_and_endorsements,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
 
-      const matchesSearch =
-        !normalizedSearch || searchableText.includes(normalizedSearch);
+    const matchesSearch =
+      !normalizedSearch || searchableText.includes(normalizedSearch);
 
-      return matchesYear && matchesRegistration && matchesAircraft && matchesSearch;
-    });
-  }, [flights, selectedYear, selectedRegistration, selectedAircraft, search]);
+    return (
+      matchesYear &&
+      matchesRegistration &&
+      matchesAircraft &&
+      matchesSearch
+    );
+  });
 
   const stats = useMemo(() => {
     const flightMinutes = sumNumber(filteredFlights, "total_minutes");
+
     const syntheticMinutes = sumNumber(
       filteredFlights,
       "synthetic_training_minutes",
@@ -1084,6 +963,7 @@ export default function Home() {
     ).size;
 
     const today = new Date();
+
     const last90Cutoff = new Date(today);
     last90Cutoff.setDate(today.getDate() - 90);
 
@@ -1130,9 +1010,14 @@ export default function Home() {
       airportCount,
 
       last90Minutes: sumNumber(last90Flights, "total_minutes"),
-      last90Flights: last90Flights.filter((flight) => (flight.total_minutes ?? 0) > 0).length,
+      last90Flights: last90Flights.filter(
+        (flight) => (flight.total_minutes ?? 0) > 0,
+      ).length,
+
       last12Minutes: sumNumber(last12Flights, "total_minutes"),
-      last12Flights: last12Flights.filter((flight) => (flight.total_minutes ?? 0) > 0).length,
+      last12Flights: last12Flights.filter(
+        (flight) => (flight.total_minutes ?? 0) > 0,
+      ).length,
     };
   }, [filteredFlights]);
 
@@ -1153,6 +1038,7 @@ export default function Home() {
       if (!flight.date) continue;
 
       const month = flight.date.slice(0, 7);
+
       const current =
         monthlyMap.get(month) ??
         {
@@ -1166,11 +1052,15 @@ export default function Home() {
 
       current.voo += hoursDecimal(flight.total_minutes);
       current.simulador += hoursDecimal(flight.synthetic_training_minutes);
+
       current.total += hoursDecimal(
         (flight.total_minutes ?? 0) + (flight.synthetic_training_minutes ?? 0),
       );
+
       current.voos += (flight.total_minutes ?? 0) > 0 ? 1 : 0;
-      current.aterragens += (flight.landings_day ?? 0) + (flight.landings_night ?? 0);
+
+      current.aterragens +=
+        (flight.landings_day ?? 0) + (flight.landings_night ?? 0);
 
       monthlyMap.set(month, current);
     }
@@ -1215,7 +1105,9 @@ export default function Home() {
       (flight) => {
         const departure = flight.departure_airport_name || "—";
         const arrival = flight.arrival_airport_name || "—";
+
         if (departure === "—" && arrival === "—") return "Simulador";
+
         return `${departure} → ${arrival}`;
       },
       (flight) =>
@@ -1268,6 +1160,7 @@ export default function Home() {
 
     for (const flight of filteredFlights) {
       const family = aircraftFamily(flight.registration);
+
       familyMap.set(
         family,
         (familyMap.get(family) ?? 0) +
@@ -1300,58 +1193,73 @@ export default function Home() {
       familyDistribution,
       timeDistribution,
     };
-  }, [filteredFlights, stats.picMinutes, stats.dualMinutes, stats.syntheticMinutes, stats.nightMinutes, stats.ifrMinutes]);
+  }, [
+    filteredFlights,
+    stats.picMinutes,
+    stats.dualMinutes,
+    stats.syntheticMinutes,
+    stats.nightMinutes,
+    stats.ifrMinutes,
+  ]);
 
-  const isAllowedUser = user?.email === allowedEmail;
-
-  if (!authReady) return <LoadingScreen />;
-
-  if (!isAllowedUser) {
-    return (
-      <LoginScreen
-        status={status}
-        loading={loading}
-        onLogin={handleGoogleSignIn}
-      />
-    );
-  }
+  if (!ready) return <LoadingScreen />;
 
   return (
     <main className="min-h-screen bg-slate-50">
       <div className="mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-8">
         <header className="mb-6 flex flex-col gap-4 border-b border-slate-200 pb-5 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-950 text-white">
-              <Plane size={22} />
+            <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl bg-white ring-1 ring-slate-200">
+              <Image
+                src="/icon.png"
+                alt="Flight Stats"
+                width={44}
+                height={44}
+                priority
+                className="h-11 w-11 object-cover"
+              />
             </div>
 
             <div>
               <h1 className="text-xl font-semibold tracking-tight text-slate-950">
                 Flight Stats
               </h1>
-              <p className="text-sm text-slate-500">{user.email}</p>
+
+              <p className="text-sm text-slate-500">
+                Supabase · sem login
+              </p>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => loadFlights()} variant="secondary" disabled={loading}>
+            <Button onClick={() => void loadFlights()} variant="secondary" disabled={loading}>
               <RefreshCw size={16} />
               Atualizar
-            </Button>
-
-            <Button onClick={handleSignOut} variant="secondary" disabled={loading}>
-              <LogOut size={16} />
-              Sair
             </Button>
           </div>
         </header>
 
         <section className="mb-6 grid gap-4 lg:grid-cols-[1fr_360px]">
           <div className="grid gap-4 md:grid-cols-4">
-            <MiniMetric label="Período" value={`${formatDate(stats.firstDate)} — ${formatDate(stats.lastDate)}`} />
-            <MiniMetric label="Últimos 90 dias" value={`${formatMinutes(stats.last90Minutes)} · ${stats.last90Flights} voos`} />
-            <MiniMetric label="Últimos 12 meses" value={`${formatMinutes(stats.last12Minutes)} · ${stats.last12Flights} voos`} />
-            <MiniMetric label="Registos" value={`${filteredFlights.length} / ${flights.length}`} />
+            <MiniMetric
+              label="Período"
+              value={`${formatDate(stats.firstDate)} — ${formatDate(stats.lastDate)}`}
+            />
+
+            <MiniMetric
+              label="Últimos 90 dias"
+              value={`${formatMinutes(stats.last90Minutes)} · ${stats.last90Flights} voos`}
+            />
+
+            <MiniMetric
+              label="Últimos 12 meses"
+              value={`${formatMinutes(stats.last12Minutes)} · ${stats.last12Flights} voos`}
+            />
+
+            <MiniMetric
+              label="Registos"
+              value={`${filteredFlights.length} / ${flights.length}`}
+            />
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-4">
@@ -1367,7 +1275,7 @@ export default function Home() {
                   const file = event.target.files?.[0];
 
                   if (file) {
-                    handleCsvUpload(file);
+                    void handleCsvUpload(file);
                   }
 
                   event.target.value = "";
@@ -1386,6 +1294,7 @@ export default function Home() {
                 <Search size={17} />
                 Filtros
               </h3>
+
               <p className="mt-1 text-sm text-slate-500">
                 {filteredFlights.length} de {flights.length} registo(s).
               </p>
@@ -1575,12 +1484,13 @@ export default function Home() {
               <h2 className="text-base font-semibold text-slate-950">
                 Logbook
               </h2>
+
               <p className="mt-1 text-sm text-slate-500">
                 Últimos registos filtrados.
               </p>
             </div>
 
-            <Button onClick={deleteAllFlights} variant="danger" disabled={loading}>
+            <Button onClick={() => void deleteAllFlights()} variant="danger" disabled={loading}>
               <Trash2 size={16} />
               Apagar tudo
             </Button>

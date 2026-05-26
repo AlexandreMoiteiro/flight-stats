@@ -1,24 +1,24 @@
-import { initializeApp, getApps } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { createClient } from "@supabase/supabase-js";
 
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-  measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
-};
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
+if (!supabaseUrl) {
+  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL");
+}
 
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+if (!supabaseAnonKey) {
+  throw new Error("Missing NEXT_PUBLIC_SUPABASE_ANON_KEY");
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: false,
+  },
+});
 
 export type Flight = {
-  id?: string;
+  id: string;
 
   date: string | null;
   departure_airport_name: string | null;
@@ -55,8 +55,12 @@ export type Flight = {
   include_in_ftl: boolean | null;
   if_time_minutes: number;
 
-  raw?: Record<string, unknown>;
-  created_at?: unknown;
+  raw?: Record<string, unknown> | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
-export type FlightInsert = Omit<Flight, "id">;
+export type FlightDraft = Omit<Flight, "id" | "created_at" | "updated_at">;
+export type FlightUpsert = Omit<Flight, "created_at" | "updated_at"> & {
+  updated_at?: string;
+};
