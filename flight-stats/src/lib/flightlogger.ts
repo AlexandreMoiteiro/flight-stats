@@ -116,6 +116,29 @@ const ACCOUNT_FLIGHTS_QUERY = `
   }
 `;
 
+const ACCOUNT_TRAININGS_QUERY = `
+  query FlightStatsTrainings($userIds: [Id!], $first: Int!, $after: String) {
+    trainings(userIds: $userIds, first: $first, after: $after) {
+      nodes {
+        id
+        instructor {
+          firstName
+          lastName
+        }
+        ifrSpicSeconds
+        vfrSpicSeconds
+        flights {
+          id
+        }
+      }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+`;
+
 type GraphQlError = {
   message?: string;
 };
@@ -232,6 +255,29 @@ type AccountFlightData = {
   } | null;
 };
 
+type AccountTraining = {
+  id: string | number;
+  instructor?: {
+    firstName?: string | null;
+    lastName?: string | null;
+  } | null;
+  ifrSpicSeconds?: number | null;
+  vfrSpicSeconds?: number | null;
+  flights?: Array<{ id: string | number } | null> | null;
+};
+
+type AccountTrainingData = {
+  trainings?: {
+    nodes?: Array<AccountTraining | null> | null;
+    pageInfo?: PageInfo | null;
+  } | null;
+};
+
+type TrainingFlightMeta = {
+  instructorName: string | null;
+  spicMinutes: number;
+};
+
 function cleanText(value: unknown): string | null {
   const text = String(value ?? "").trim();
   return text ? text : null;
@@ -245,6 +291,34 @@ function secondsToMinutes(value: number | null | undefined): number {
 function cleanRegistration(value: unknown): string | null {
   const text = cleanText(value);
   return text ? text.toUpperCase() : null;
+}
+
+function fstdInfo(
+  registration: string | null,
+  model: string | null,
+): { type: string | null; model: string | null } {
+  const reg = String(registration ?? "").toUpperCase().replace(/\s+/g, " ").trim();
+  const sourceModel = String(model ?? "").toUpperCase();
+
+  if (/^AL\s*172-03\b/.test(reg)) {
+    return { type: "FNPT I", model: "C172R" };
+  }
+
+  if (/^ALX\s*50\b/.test(reg)) {
+    if (/JET/.test(sourceModel)) return { type: "FNPT II/MCC", model: "A320" };
+    if (/MULTI|MEP/.test(sourceModel)) return { type: "FNPT II", model: "PA44" };
+    if (/SEP|SINGLE/.test(sourceModel)) return { type: "FNPT II", model: "C172R" };
+    return { type: "FNPT II", model: null };
+  }
+
+  if (/^ALX\s*98\b/.test(reg)) {
+    if (/JET/.test(sourceModel)) return { type: "FNPT II/MCC", model: "A320" };
+    if (/MULTI|MEP/.test(sourceModel)) return { type: "FNPT II", model: "PA44" };
+    if (/SEP|SINGLE/.test(sourceModel)) return { type: "FNPT II", model: "PA28" };
+    return { type: "FNPT II", model: null };
+  }
+
+  return { type: null, model: null };
 }
 
 function fullName(user: Pick<AccountUser, "firstName" | "lastName">): string {
@@ -349,6 +423,11 @@ function mapLogbookEntry(entry: FlightLoggerLogbookEntry): Flight {
     type_of_aircraft: normalizeAircraftModel(entry.typeOfAircraft),
     registration,
     name_of_pilot_in_command: cleanText(entry.nameOfPilotInCommand),
+    instructor_name: null,
+    flight_type: null,
+    spic_minutes: 0,
+    fstd_type: fstdInfo(registration, normalizeAircraftModel(entry.typeOfAircraft)).type,
+    fstd_model: fstdInfo(registration, normalizeAircraftModel(entry.typeOfAircraft)).model,
     total_minutes: secondsToMinutes(entry.totalSeconds),
     day_minutes: secondsToMinutes(entry.daySeconds),
     night_minutes: secondsToMinutes(entry.nightSeconds),
@@ -373,7 +452,11 @@ function mapLogbookEntry(entry: FlightLoggerLogbookEntry): Flight {
   };
 }
 
-function mapAccountFlight(entry: AccountFlight, profile: AccountUser): Flight {
+function mapAccountFlight(
+  entry: AccountFlight,
+  profile: AccountUser,
+  trainingMeta?: TrainingFlightMeta,
+): Flight {
   const offBlock = cleanText(entry.offBlock);
   const onBlock = cleanText(entry.onBlock);
   const registration = cleanRegistration(entry.aircraft?.callSign);
@@ -411,10 +494,15 @@ function mapAccountFlight(entry: AccountFlight, profile: AccountUser): Flight {
   const simulatorMinutes = isSimulator
     ? secondsToMinutes(flightSeconds)
     : 0;
+  const normalizedModel = normalizeAircraftModel(entry.aircraft?.model);
+  const fstd = fstdInfo(registration, normalizedModel);
+  const instructorName = cleanText(trainingMeta?.instructorName);
   const pilotName =
-    flightType === "SOLO" || flightType === "SPIC"
+    flightType === "SOLO"
       ? cleanText(fullName(profile))
-      : null;
+      : flightType === "DUAL" || flightType === "SPIC"
+        ? instructorName
+        : null;
 
   return {
     id: `account-flight-${String(entry.id)}`,
@@ -423,9 +511,17 @@ function mapAccountFlight(entry: AccountFlight, profile: AccountUser): Flight {
     off_block: offBlock,
     arrival_airport_name: cleanText(entry.arrivalAirport?.name),
     on_block: onBlock,
-    type_of_aircraft: normalizeAircraftModel(entry.aircraft?.model),
+    type_of_aircraft: normalizedModel,
     registration,
     name_of_pilot_in_command: pilotName,
+    instructor_name: instructorName,
+    flight_type: flightType,
+    spic_minutes:
+      flightType === "SPIC"
+        ? Math.max(secondsToMinutes(flightSeconds), trainingMeta?.spicMinutes ?? 0)
+        : 0,
+    fstd_type: fstd.type,
+    fstd_model: fstd.model,
     total_minutes: isSimulator ? 0 : secondsToMinutes(flightSeconds),
     day_minutes: isSimulator ? 0 : secondsToMinutes(entry.daySeconds),
     night_minutes: isSimulator ? 0 : secondsToMinutes(entry.nightSeconds),
@@ -580,6 +676,67 @@ async function findAccountUser(token: string): Promise<AccountUser> {
   throw error;
 }
 
+async function fetchAccountTrainingMetadata(
+  token: string,
+  userId: string,
+): Promise<Map<string, TrainingFlightMeta>> {
+  const metadata = new Map<string, TrainingFlightMeta>();
+  let after: string | null = null;
+  let hasMorePages = false;
+
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const payload = await requestGraphQl<AccountTrainingData>(
+      token,
+      ACCOUNT_TRAININGS_QUERY,
+      {
+        userIds: [userId],
+        first: PAGE_SIZE,
+        after,
+      },
+    );
+
+    if (payload.errors?.length) {
+      throw new Error(graphQlErrorMessage(payload.errors));
+    }
+
+    const connection = payload.data?.trainings;
+    for (const training of connection?.nodes ?? []) {
+      if (!training) continue;
+      const instructorName = [
+        cleanText(training.instructor?.firstName),
+        cleanText(training.instructor?.lastName),
+      ]
+        .filter(Boolean)
+        .join(" ") || null;
+      const spicMinutes = secondsToMinutes(
+        (training.ifrSpicSeconds ?? 0) + (training.vfrSpicSeconds ?? 0),
+      );
+
+      for (const flight of training.flights ?? []) {
+        if (!flight) continue;
+        metadata.set(String(flight.id), { instructorName, spicMinutes });
+      }
+    }
+
+    hasMorePages = Boolean(connection?.pageInfo?.hasNextPage);
+    if (!hasMorePages) break;
+
+    const nextCursor = connection?.pageInfo?.endCursor ?? null;
+    if (!nextCursor || nextCursor === after) {
+      throw new Error("A paginação dos treinos FlightLogger não avançou.");
+    }
+    after = nextCursor;
+  }
+
+  if (hasMorePages) {
+    throw new Error(
+      `Os treinos excederam o limite de ${MAX_PAGES * PAGE_SIZE} registos por sincronização.`,
+    );
+  }
+
+  return metadata;
+}
+
 async function fetchAccountFlightStats(
   token: string,
 ): Promise<FlightStatsResponse> {
@@ -642,9 +799,20 @@ async function fetchAccountFlightStats(
     throw new Error("Não foi possível obter o perfil FlightLogger.");
   }
 
+  const trainingMetadata = await fetchAccountTrainingMetadata(
+    token,
+    accountUser.id,
+  );
+
   return {
     flights: entries
-      .map((entry) => mapAccountFlight(entry, accountUser))
+      .map((entry) =>
+        mapAccountFlight(
+          entry,
+          accountUser,
+          trainingMetadata.get(String(entry.id)),
+        ),
+      )
       .sort((a, b) =>
         String(b.off_block ?? "").localeCompare(String(a.off_block ?? "")),
       ),
