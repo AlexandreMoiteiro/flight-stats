@@ -1301,7 +1301,7 @@ export default function Home() {
                   <div>
                     <h2 className="text-sm font-semibold">Voos e FSTD</h2>
                     <p className="mt-1 text-xs text-zinc-500">
-                      {filtered.length} registos
+                      {filtered.length} registos · clica num voo para abrir a trajetória ADS-B
                     </p>
                   </div>
                   <p className="text-xs text-zinc-500">
