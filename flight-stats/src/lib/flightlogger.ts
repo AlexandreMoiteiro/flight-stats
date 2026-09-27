@@ -896,11 +896,12 @@ export async function fetchActiveAircraft(): Promise<FlightStatsAircraft[]> {
       if (node.aircraftClass === "SIMULATOR") continue;
 
       const registration = cleanRegistration(node.callSign);
-      if (!registration) continue;
+      const model = normalizeAircraftModel(node.model);
+      if (!registration || model === "CREDIT") continue;
 
       result.push({
         registration,
-        model: normalizeAircraftModel(node.model),
+        model,
         aircraftClass:
           node.aircraftClass === "MULTI_ENGINE" ||
           node.aircraftClass === "SINGLE_ENGINE"
