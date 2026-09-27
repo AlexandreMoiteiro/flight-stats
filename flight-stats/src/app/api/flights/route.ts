@@ -55,11 +55,11 @@ function normalizeFlightTimes(flight: Flight): Flight {
 
   const inferPic =
     !hasRecordedRole &&
-    Boolean(flight.name_of_pilot_in_command) &&
+    (flight.flight_type === "SOLO" || flight.flight_type === "SPIC") &&
     !looksLikeSimulator;
   const inferDual =
     !hasRecordedRole &&
-    !flight.name_of_pilot_in_command &&
+    flight.flight_type === "DUAL" &&
     !looksLikeSimulator;
 
   const picMinutes = inferPic
@@ -74,6 +74,10 @@ function normalizeFlightTimes(flight: Flight): Flight {
     total_minutes: totalMinutes,
     pilot_in_command_minutes: picMinutes,
     dual_minutes: dualMinutes,
+    spic_minutes:
+      flight.flight_type === "SPIC"
+        ? Math.max(flight.spic_minutes ?? 0, picMinutes, totalMinutes)
+        : flight.spic_minutes,
     synthetic_training_minutes: simulatorMinutes,
   };
 }
