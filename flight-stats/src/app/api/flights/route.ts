@@ -76,7 +76,7 @@ function normalizeFlightTimes(flight: Flight): Flight {
     dual_minutes: dualMinutes,
     spic_minutes:
       flight.flight_type === "SPIC"
-        ? Math.max(flight.spic_minutes, picMinutes, totalMinutes)
+        ? Math.max(flight.spic_minutes ?? 0, picMinutes, totalMinutes)
         : flight.spic_minutes,
     synthetic_training_minutes: simulatorMinutes,
   };
