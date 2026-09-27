@@ -10,11 +10,11 @@ export type Flight = {
   type_of_aircraft: string | null;
   registration: string | null;
   name_of_pilot_in_command: string | null;
-  instructor_name: string | null;
-  flight_type: FlightType | null;
-  spic_minutes: number;
-  fstd_type: string | null;
-  fstd_model: string | null;
+  instructor_name?: string | null;
+  flight_type?: FlightType | null;
+  spic_minutes?: number;
+  fstd_type?: string | null;
+  fstd_model?: string | null;
   total_minutes: number;
   day_minutes: number;
   night_minutes: number;
