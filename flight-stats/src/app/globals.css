@@ -74,24 +74,24 @@ button {
   table-layout: fixed;
   border-collapse: collapse;
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 10px;
-  line-height: 1.15;
+  font-size: 9.5px;
+  line-height: 1.1;
   color: #18181b;
 }
 
 .logbook-table th,
 .logbook-table td {
   border: 1px solid #71717a;
-  padding: 3px 4px;
+  padding: 2px 3px;
   text-align: center;
   vertical-align: middle;
 }
 
 .logbook-table th {
   background: #fafafa;
-  font-size: 8.5px;
+  font-size: 8.2px;
   font-weight: 700;
-  letter-spacing: 0.015em;
+  letter-spacing: 0.01em;
 }
 
 .logbook-table td {
@@ -105,11 +105,11 @@ button {
 }
 
 .logbook-entry-row {
-  height: 34px;
+  height: 27px;
 }
 
 .logbook-total-row {
-  height: 28px;
+  height: 25px;
   font-weight: 700;
   background: #fafafa;
 }
@@ -117,13 +117,34 @@ button {
 .logbook-total-label {
   text-align: right !important;
   padding-right: 10px !important;
-  font-size: 8.5px;
+  font-size: 8.3px;
   letter-spacing: 0.04em;
+}
+
+.logbook-duration {
+  display: inline-grid;
+  grid-template-columns: minmax(14px, auto) minmax(18px, auto);
+  align-items: stretch;
+  justify-content: center;
+  min-width: 36px;
+  font-variant-numeric: tabular-nums;
+}
+
+.logbook-duration > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 14px;
+  padding: 0 3px;
+}
+
+.logbook-duration > span:last-child {
+  border-left: 1px dashed #a1a1aa;
 }
 
 @page {
   size: A4 landscape;
-  margin: 7mm;
+  margin: 6mm;
 }
 
 @media print {
@@ -163,24 +184,34 @@ button {
 
   .logbook-table {
     width: 100%;
-    font-size: 6.4px;
+    font-size: 5.9px;
   }
 
   .logbook-table th {
-    font-size: 5.7px;
-    padding: 2px;
+    font-size: 5.3px;
+    padding: 1.5px;
   }
 
   .logbook-table td {
-    padding: 1.5px 2px;
+    padding: 1px 1.5px;
   }
 
   .logbook-entry-row {
-    height: 20px;
+    height: 16px;
   }
 
   .logbook-total-row {
-    height: 18px;
+    height: 15px;
+  }
+
+  .logbook-duration {
+    grid-template-columns: minmax(8px, auto) minmax(10px, auto);
+    min-width: 20px;
+  }
+
+  .logbook-duration > span {
+    min-height: 9px;
+    padding: 0 1px;
   }
 
   .screen-only {
