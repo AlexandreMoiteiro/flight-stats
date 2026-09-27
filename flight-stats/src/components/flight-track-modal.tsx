@@ -275,7 +275,7 @@ function MapView({ points }: { points: TrackPoint[] }) {
       </svg>
       <div className="flex items-center justify-between gap-3 border-t border-zinc-200 bg-white px-3 py-2 text-[10px] text-zinc-500">
         <span>Trajetória ADS-B · linha interrompida quando há perda de cobertura</span>
-        <span>© OpenStreetMap contributors · ADS-B © adsb.lol contributors (ODbL)</span>
+        <span>© OpenStreetMap contributors · ADS-B: adsb.lol / airplanes.live</span>
       </div>
     </div>
   );
@@ -480,12 +480,12 @@ export function FlightTrackModal({ flight, onClose }: Props) {
             <div className="rounded-2xl border border-zinc-200 bg-white p-7 text-center">
               <MapPinned className="mx-auto text-zinc-400" size={28} />
               <p className="mt-3 text-sm font-semibold">
-                Ainda não há trajetória ADS-B guardada para este voo
+                Sem trajetória ADS-B disponível para este voo
               </p>
               <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-zinc-500">
-                O gravador ADS-B começou agora e guarda novos pontos
-                automaticamente. Voos anteriores ao início da gravação podem
-                não ter trajetória disponível.
+                O voo foi procurado também nas fontes históricas disponíveis.
+                Não existem pontos ADS-B utilizáveis para a janela deste voo,
+                ou a cobertura nessa zona/altura foi insuficiente.
               </p>
             </div>
           )}
@@ -521,7 +521,7 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                 {points.length ? "Track disponível" : "Sem track"}
               </p>
               <p className="mt-1 text-[11px] text-zinc-500">
-                Fonte: adsb.lol · atualização automática
+                Fontes: adsb.lol / airplanes.live · gravação e histórico
               </p>
             </div>
           </div>
