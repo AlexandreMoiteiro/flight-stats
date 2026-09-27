@@ -647,6 +647,8 @@ export default function Home() {
     >();
 
     for (const flight of flights) {
+      if (isSimulator(flight)) continue;
+
       const key = flight.registration || "SEM MATRÍCULA";
       const current =
         map.get(key) || {
