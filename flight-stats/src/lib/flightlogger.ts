@@ -685,8 +685,9 @@ async function fetchAccountTrainingMetadata(
   let hasMorePages = false;
 
   for (let page = 0; page < MAX_PAGES; page += 1) {
-    const payload = await requestGraphQl<AccountTrainingData>(
-      token,
+    const payload: GraphQlResponse<AccountTrainingData> =
+      await requestGraphQl<AccountTrainingData>(
+        token,
       ACCOUNT_TRAININGS_QUERY,
       {
         userIds: [userId],
