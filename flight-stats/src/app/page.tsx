@@ -21,6 +21,7 @@ import {
   TimerReset,
 } from "lucide-react";
 
+import { FlightTrackModal } from "@/components/flight-track-modal";
 import type {
   Flight,
   FlightStatsErrorResponse,
@@ -632,6 +633,7 @@ export default function Home() {
   const [year, setYear] = useState("all");
   const [aircraft, setAircraft] = useState("all");
   const [registration, setRegistration] = useState("all");
+  const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1327,7 +1329,29 @@ export default function Home() {
                     </thead>
                     <tbody className="divide-y divide-zinc-100">
                       {visibleFlights.map((flight) => (
-                        <tr key={flight.id} className="hover:bg-zinc-50/70">
+                        <tr
+                          key={flight.id}
+                          role={isSimulator(flight) ? undefined : "button"}
+                          tabIndex={isSimulator(flight) ? undefined : 0}
+                          onClick={() => {
+                            if (!isSimulator(flight)) setSelectedFlight(flight);
+                          }}
+                          onKeyDown={(event) => {
+                            if (
+                              !isSimulator(flight) &&
+                              (event.key === "Enter" || event.key === " ")
+                            ) {
+                              event.preventDefault();
+                              setSelectedFlight(flight);
+                            }
+                          }}
+                          className={
+                            "hover:bg-zinc-50/70 " +
+                            (isSimulator(flight)
+                              ? ""
+                              : "cursor-pointer focus-within:bg-zinc-50 focus:outline-none")
+                          }
+                        >
                           <td className="px-4 py-3 text-xs text-zinc-600">
                             {displayDate(flight.date)}
                           </td>
@@ -1484,6 +1508,13 @@ export default function Home() {
           </div>
         ) : null}
       </div>
+
+      {selectedFlight ? (
+        <FlightTrackModal
+          flight={selectedFlight}
+          onClose={() => setSelectedFlight(null)}
+        />
+      ) : null}
     </main>
   );
 }
