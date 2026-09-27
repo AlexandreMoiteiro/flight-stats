@@ -139,6 +139,23 @@ const ACCOUNT_TRAININGS_QUERY = `
   }
 `;
 
+const ACCOUNT_AIRCRAFT_QUERY = `
+  query FlightStatsAircraft($first: Int!, $after: String) {
+    aircraft(first: $first, after: $after) {
+      nodes {
+        aircraftClass
+        aircraftType
+        callSign
+        model
+      }
+      pageInfo {
+        endCursor
+        hasNextPage
+      }
+    }
+  }
+`;
+
 type GraphQlError = {
   message?: string;
 };
@@ -276,6 +293,26 @@ type AccountTrainingData = {
 type TrainingFlightMeta = {
   instructorName: string | null;
   spicMinutes: number;
+};
+
+type ActiveAircraft = {
+  aircraftClass?: "MULTI_ENGINE" | "SIMULATOR" | "SINGLE_ENGINE" | null;
+  aircraftType?: "AIRPLANE" | "HELICOPTER" | null;
+  callSign?: string | null;
+  model?: string | null;
+};
+
+type AccountAircraftData = {
+  aircraft?: {
+    nodes?: Array<ActiveAircraft | null> | null;
+    pageInfo?: PageInfo | null;
+  } | null;
+};
+
+export type FlightStatsAircraft = {
+  registration: string;
+  model: string | null;
+  aircraftClass: "MULTI_ENGINE" | "SINGLE_ENGINE" | null;
 };
 
 function cleanText(value: unknown): string | null {
@@ -820,6 +857,77 @@ async function fetchAccountFlightStats(
     profile,
     syncedAt: new Date().toISOString(),
   };
+}
+
+export async function fetchActiveAircraft(): Promise<FlightStatsAircraft[]> {
+  const token = process.env.FLIGHTLOGGER_API_TOKEN?.trim();
+
+  if (!token) {
+    const error = new Error(
+      "Falta configurar FLIGHTLOGGER_API_TOKEN nas variáveis de ambiente da Vercel.",
+    );
+    error.name = "FLIGHTLOGGER_NOT_CONFIGURED";
+    throw error;
+  }
+
+  const result: FlightStatsAircraft[] = [];
+  let after: string | null = null;
+  let hasMorePages = false;
+
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const payload: GraphQlResponse<AccountAircraftData> =
+      await requestGraphQl<AccountAircraftData>(
+        token,
+        ACCOUNT_AIRCRAFT_QUERY,
+        {
+          first: PAGE_SIZE,
+          after,
+        },
+      );
+
+    if (payload.errors?.length) {
+      throw new Error(graphQlErrorMessage(payload.errors));
+    }
+
+    const connection = payload.data?.aircraft;
+    for (const node of connection?.nodes ?? []) {
+      if (!node) continue;
+      if (node.aircraftType && node.aircraftType !== "AIRPLANE") continue;
+      if (node.aircraftClass === "SIMULATOR") continue;
+
+      const registration = cleanRegistration(node.callSign);
+      if (!registration) continue;
+
+      result.push({
+        registration,
+        model: normalizeAircraftModel(node.model),
+        aircraftClass:
+          node.aircraftClass === "MULTI_ENGINE" ||
+          node.aircraftClass === "SINGLE_ENGINE"
+            ? node.aircraftClass
+            : null,
+      });
+    }
+
+    hasMorePages = Boolean(connection?.pageInfo?.hasNextPage);
+    if (!hasMorePages) break;
+
+    const nextCursor = connection?.pageInfo?.endCursor ?? null;
+    if (!nextCursor || nextCursor === after) {
+      throw new Error("A paginação das aeronaves FlightLogger não avançou.");
+    }
+    after = nextCursor;
+  }
+
+  if (hasMorePages) {
+    throw new Error(
+      `A frota excedeu o limite de ${MAX_PAGES * PAGE_SIZE} aeronaves por sincronização.`,
+    );
+  }
+
+  return Array.from(
+    new Map(result.map((aircraft) => [aircraft.registration, aircraft])).values(),
+  ).sort((a, b) => a.registration.localeCompare(b.registration));
 }
 
 export async function fetchFlightStats(): Promise<FlightStatsResponse> {
