@@ -272,7 +272,7 @@ function Logbook({
       <div className="mb-3 flex items-end justify-between gap-4">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
-            Pilot logbook · AMC1 FCL.050
+            PILOT LOGBOOK / CADERNETA DE VOO · AMC1 FCL.050
           </p>
           <p className="mt-1 text-sm font-semibold text-zinc-950">
             {profileName || "Pilot"}
@@ -289,11 +289,10 @@ function Logbook({
               <th colSpan={2}>2 · Partida</th>
               <th colSpan={2}>3 · Chegada</th>
               <th colSpan={2}>4 · Aeronave</th>
-              <th colSpan={2}>5 · Monopiloto</th>
-              <th rowSpan={2}>6<br />Multipiloto</th>
-              <th rowSpan={2}>7<br />Tempo total</th>
-              <th rowSpan={2}>8<br />PIC</th>
-              <th colSpan={2}>Aterragens</th>
+              <th colSpan={3}>5 · Tempo de piloto</th>
+              <th rowSpan={2}>6<br />Tempo total</th>
+              <th rowSpan={2}>7<br />Nome(s) PIC</th>
+              <th colSpan={2}>8 · Aterragens</th>
               <th colSpan={2}>9 · Condições operacionais</th>
               <th colSpan={4}>10 · Função do piloto</th>
               <th colSpan={3}>11 · Treino sintético</th>
@@ -308,6 +307,7 @@ function Logbook({
               <th>Matrícula</th>
               <th>SE</th>
               <th>ME</th>
+              <th>MP</th>
               <th>Dia</th>
               <th>Noite</th>
               <th>Noite</th>
