@@ -47,14 +47,27 @@ function normalizeFlightTimes(flight: Flight): Flight {
     ? Math.max(flight.synthetic_training_minutes, blockMinutes)
     : flight.synthetic_training_minutes;
 
-  const isPic = Boolean(flight.name_of_pilot_in_command) && !looksLikeSimulator;
-  const picMinutes = isPic
+  const hasRecordedRole =
+    flight.pilot_in_command_minutes > 0 ||
+    flight.co_pilot_minutes > 0 ||
+    flight.dual_minutes > 0 ||
+    flight.flight_instructor_minutes > 0;
+
+  const inferPic =
+    !hasRecordedRole &&
+    Boolean(flight.name_of_pilot_in_command) &&
+    !looksLikeSimulator;
+  const inferDual =
+    !hasRecordedRole &&
+    !flight.name_of_pilot_in_command &&
+    !looksLikeSimulator;
+
+  const picMinutes = inferPic
     ? Math.max(flight.pilot_in_command_minutes, totalMinutes)
     : flight.pilot_in_command_minutes;
-  const dualMinutes =
-    !isPic && !looksLikeSimulator
-      ? Math.max(flight.dual_minutes, totalMinutes)
-      : flight.dual_minutes;
+  const dualMinutes = inferDual
+    ? Math.max(flight.dual_minutes, totalMinutes)
+    : flight.dual_minutes;
 
   return {
     ...flight,
