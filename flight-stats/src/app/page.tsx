@@ -54,14 +54,14 @@ function safe(value: number | null | undefined): number {
     : 0;
 }
 
-function hm(minutes: number): string {
+function hm(minutes: number | null | undefined): string {
   const value = safe(minutes);
   const hours = Math.floor(value / 60);
   const mins = value % 60;
   return hours + ":" + String(mins).padStart(2, "0");
 }
 
-function hoursLabel(minutes: number): string {
+function hoursLabel(minutes: number | null | undefined): string {
   const value = safe(minutes);
   const hours = Math.floor(value / 60);
   const mins = value % 60;
@@ -692,7 +692,7 @@ export default function Home() {
       (flight) => flight.synthetic_training_minutes,
     );
     const pic = sum(realFlights, (flight) => flight.pilot_in_command_minutes);
-    const spic = sum(realFlights, (flight) => flight.spic_minutes);
+    const spic = sum(realFlights, (flight) => flight.spic_minutes ?? 0);
     const dual = sum(realFlights, (flight) => flight.dual_minutes);
     const night = sum(realFlights, (flight) => flight.night_minutes);
     const ifr = sum(realFlights, ifrMinutes);
