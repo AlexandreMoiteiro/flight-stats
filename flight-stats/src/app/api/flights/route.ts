@@ -18,66 +18,70 @@ function elapsedMinutes(offBlock: string | null, onBlock: string | null): number
   return minutes > 0 && minutes <= 24 * 60 ? minutes : 0;
 }
 
-function normalizeAccountFlight(flight: Flight): Flight {
+function normalizeFlightTimes(flight: Flight): Flight {
   const blockMinutes = elapsedMinutes(flight.off_block, flight.on_block);
   const dayNightMinutes = flight.day_minutes + flight.night_minutes;
-  const vfrMinutes =
-    flight.single_engine_vfr_minutes + flight.multi_engine_vfr_minutes;
-  const ifrMinutes =
-    flight.single_engine_ifr_minutes + flight.multi_engine_ifr_minutes;
-  const conditionsMinutes = vfrMinutes + ifrMinutes;
+  const classifiedMinutes =
+    flight.single_engine_vfr_minutes +
+    flight.single_engine_ifr_minutes +
+    flight.multi_engine_vfr_minutes +
+    flight.multi_engine_ifr_minutes;
 
   const hasAirports = Boolean(
     flight.departure_airport_name || flight.arrival_airport_name,
   );
   const looksLikeSimulator =
     flight.synthetic_training_minutes > 0 ||
-    (!hasAirports && dayNightMinutes === 0 && conditionsMinutes === 0);
+    (!hasAirports && dayNightMinutes === 0 && classifiedMinutes === 0);
 
-  const calculatedMinutes = Math.max(
-    flight.total_minutes,
-    dayNightMinutes,
-    conditionsMinutes,
-    blockMinutes,
-  );
+  const totalMinutes = looksLikeSimulator
+    ? 0
+    : Math.max(
+        flight.total_minutes,
+        dayNightMinutes,
+        classifiedMinutes,
+        blockMinutes,
+      );
 
-  const aircraft = (flight.type_of_aircraft ?? "").toUpperCase();
-  const isSingleEngine =
-    aircraft === "PA-28" || aircraft === "P2008" || aircraft === "SEP";
-  const isMultiEngine =
-    aircraft === "P2006T" || aircraft === "MULTIENGINE" || aircraft === "MEP";
-
-  const totalMinutes = looksLikeSimulator ? 0 : calculatedMinutes;
   const simulatorMinutes = looksLikeSimulator
     ? Math.max(flight.synthetic_training_minutes, blockMinutes)
     : flight.synthetic_training_minutes;
 
-  const isPic = Boolean(flight.name_of_pilot_in_command) && !looksLikeSimulator;
-  const inferredPicMinutes = isPic
+  const hasRecordedRole =
+    flight.pilot_in_command_minutes > 0 ||
+    flight.co_pilot_minutes > 0 ||
+    flight.dual_minutes > 0 ||
+    flight.flight_instructor_minutes > 0;
+
+  const inferPic =
+    !hasRecordedRole &&
+    Boolean(flight.name_of_pilot_in_command) &&
+    !looksLikeSimulator;
+  const inferDual =
+    !hasRecordedRole &&
+    !flight.name_of_pilot_in_command &&
+    !looksLikeSimulator;
+
+  const picMinutes = inferPic
     ? Math.max(flight.pilot_in_command_minutes, totalMinutes)
     : flight.pilot_in_command_minutes;
-  const inferredDualMinutes =
-    !isPic && !looksLikeSimulator
-      ? Math.max(flight.dual_minutes, totalMinutes)
-      : flight.dual_minutes;
+  const dualMinutes = inferDual
+    ? Math.max(flight.dual_minutes, totalMinutes)
+    : flight.dual_minutes;
 
   return {
     ...flight,
     total_minutes: totalMinutes,
-    pilot_in_command_minutes: inferredPicMinutes,
-    dual_minutes: inferredDualMinutes,
+    pilot_in_command_minutes: picMinutes,
+    dual_minutes: dualMinutes,
     synthetic_training_minutes: simulatorMinutes,
-    single_engine_vfr_minutes: isSingleEngine ? vfrMinutes : 0,
-    single_engine_ifr_minutes: isSingleEngine ? ifrMinutes : 0,
-    multi_engine_vfr_minutes: isMultiEngine ? vfrMinutes : 0,
-    multi_engine_ifr_minutes: isMultiEngine ? ifrMinutes : 0,
   };
 }
 
 function normalizeResponse(data: FlightStatsResponse): FlightStatsResponse {
   return {
     ...data,
-    flights: data.flights.map(normalizeAccountFlight),
+    flights: data.flights.map(normalizeFlightTimes),
   };
 }
 
