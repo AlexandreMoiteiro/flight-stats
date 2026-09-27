@@ -2,49 +2,24 @@
 
 import {
   useCallback,
-  useDeferredValue,
   useEffect,
   useMemo,
   useState,
+  type ReactNode,
 } from "react";
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
-  Activity,
-  ArrowDownRight,
-  ArrowUpRight,
-  Award,
-  CalendarDays,
-  CheckCircle2,
-  Clock3,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
   Download,
+  FileText,
   Gauge,
-  MapPin,
-  Monitor,
   Moon,
   Plane,
-  PlaneLanding,
+  Printer,
   RefreshCw,
-  Route,
   Search,
-  ShieldCheck,
-  Sparkles,
-  Target,
-  TrendingUp,
-  X,
+  TimerReset,
 } from "lucide-react";
 
 import type {
@@ -53,349 +28,496 @@ import type {
   FlightStatsResponse,
 } from "@/lib/flight-types";
 
-type PeriodKey = "all" | "ytd" | "90d" | "30d";
+type ViewKey = "overview" | "logbook" | "flights" | "aircraft";
 
-type ChartRow = {
-  label: string;
-  hours?: number;
-  flights?: number;
-  flightHours?: number;
-  simulatorHours?: number;
-  value?: number;
-  total?: number;
+type Totals = {
+  se: number;
+  me: number;
+  mp: number;
+  total: number;
+  landDay: number;
+  landNight: number;
+  night: number;
+  ifr: number;
+  pic: number;
+  copilot: number;
+  dual: number;
+  instructor: number;
+  fstd: number;
 };
 
-type Milestone = {
-  targetHours: number;
-  remainingMinutes: number;
-  progress: number;
-};
+const LOGBOOK_ROWS = 12;
+const FLIGHT_ROWS = 25;
 
-const chartColors = ["#0284c7", "#0f172a", "#7c3aed", "#94a3b8"];
-const PAGE_SIZE = 12;
-
-const periodOptions: Array<{ value: PeriodKey; label: string }> = [
-  { value: "all", label: "Tudo" },
-  { value: "ytd", label: "Este ano" },
-  { value: "90d", label: "90 dias" },
-  { value: "30d", label: "30 dias" },
-];
-
-function formatMinutes(minutes: number): string {
-  const safe = Number.isFinite(minutes) ? Math.max(0, Math.round(minutes)) : 0;
-  const hours = Math.floor(safe / 60);
-  const mins = safe % 60;
-  return `${hours}h${String(mins).padStart(2, "0")}`;
+function safe(value: number | null | undefined): number {
+  return Number.isFinite(value ?? Number.NaN)
+    ? Math.max(0, Math.round(value ?? 0))
+    : 0;
 }
 
-function decimalHours(minutes: number): number {
-  return Number((minutes / 60).toFixed(1));
+function hm(minutes: number): string {
+  const value = safe(minutes);
+  const hours = Math.floor(value / 60);
+  const mins = value % 60;
+  return hours + ":" + String(mins).padStart(2, "0");
 }
 
-function formatDate(value: string | null | undefined): string {
+function hoursLabel(minutes: number): string {
+  const value = safe(minutes);
+  const hours = Math.floor(value / 60);
+  const mins = value % 60;
+  return hours + "h " + String(mins).padStart(2, "0");
+}
+
+function displayDate(value: string | null | undefined): string {
   if (!value) return "—";
-  const date = new Date(`${value.slice(0, 10)}T12:00:00`);
+  const date = new Date(value.slice(0, 10) + "T12:00:00Z");
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("pt-PT", {
     day: "2-digit",
-    month: "short",
+    month: "2-digit",
     year: "numeric",
+    timeZone: "UTC",
   }).format(date);
 }
 
-function formatDateTime(value: string): string {
+function logDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const parts = value.slice(0, 10).split("-");
+  if (parts.length !== 3) return value;
+  return parts[2] + "/" + parts[1] + "/" + parts[0].slice(-2);
+}
+
+function utcTime(value: string | null | undefined): string {
+  if (!value) return "";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("pt-PT", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  if (Number.isNaN(date.getTime())) return "";
+  return (
+    String(date.getUTCHours()).padStart(2, "0") +
+    String(date.getUTCMinutes()).padStart(2, "0")
+  );
 }
 
-function monthLabel(monthKey: string): string {
-  const [year, month] = monthKey.split("-");
-  const date = new Date(Number(year), Number(month) - 1, 1);
-  return new Intl.DateTimeFormat("pt-PT", {
-    month: "short",
-    year: "2-digit",
-  }).format(date);
+function ifrMinutes(flight: Flight): number {
+  return (
+    safe(flight.single_engine_ifr_minutes) +
+    safe(flight.multi_engine_ifr_minutes)
+  );
 }
 
-function uniqueSorted(values: Array<string | null | undefined>): string[] {
+function isSimulator(flight: Flight): boolean {
+  return (
+    safe(flight.synthetic_training_minutes) > 0 &&
+    safe(flight.total_minutes) === 0
+  );
+}
+
+function role(flight: Flight): string {
+  if (isSimulator(flight)) return "SIM";
+  if (safe(flight.pilot_in_command_minutes) > 0) return "PIC";
+  if (safe(flight.dual_minutes) > 0) return "DUAL";
+  if (safe(flight.co_pilot_minutes) > 0) return "COP";
+  return "—";
+}
+
+function sum(flights: Flight[], pick: (flight: Flight) => number): number {
+  return flights.reduce((total, flight) => total + safe(pick(flight)), 0);
+}
+
+function unique(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.filter(Boolean) as string[])).sort((a, b) =>
     a.localeCompare(b),
   );
 }
 
-function sum(flights: Flight[], getValue: (flight: Flight) => number): number {
-  return flights.reduce((total, flight) => total + getValue(flight), 0);
-}
-
-function daysSince(value: string | null | undefined): number | null {
-  if (!value) return null;
-  const date = new Date(`${value.slice(0, 10)}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return null;
-  const now = new Date();
-  return Math.max(0, Math.floor((now.getTime() - date.getTime()) / 86_400_000));
-}
-
-function dateMatchesPeriod(dateValue: string | null, period: PeriodKey): boolean {
-  if (period === "all") return true;
-  if (!dateValue) return false;
-
-  const date = new Date(`${dateValue.slice(0, 10)}T12:00:00`);
-  if (Number.isNaN(date.getTime())) return false;
-
-  const now = new Date();
-  if (period === "ytd") return date.getFullYear() === now.getFullYear();
-
-  const cutoff = new Date(now);
-  cutoff.setHours(0, 0, 0, 0);
-  cutoff.setDate(cutoff.getDate() - (period === "30d" ? 30 : 90));
-  return date >= cutoff;
-}
-
-function nextMilestone(minutes: number): Milestone {
-  const currentHours = Math.max(0, minutes / 60);
-  const step = currentHours < 50 ? 10 : 25;
-  const targetHours = (Math.floor(currentHours / step) + 1) * step;
-  const previousTarget = Math.max(0, targetHours - step);
-  const progress = Math.min(
-    100,
-    Math.max(0, ((currentHours - previousTarget) / step) * 100),
+function monthLabel(key: string): string {
+  const parts = key.split("-");
+  const date = new Date(
+    Date.UTC(Number(parts[0]), Number(parts[1]) - 1, 1),
   );
+  return new Intl.DateTimeFormat("pt-PT", {
+    month: "short",
+    year: "2-digit",
+    timeZone: "UTC",
+  }).format(date);
+}
 
+function emptyTotals(): Totals {
   return {
-    targetHours,
-    remainingMinutes: Math.max(0, Math.round(targetHours * 60 - minutes)),
-    progress,
+    se: 0,
+    me: 0,
+    mp: 0,
+    total: 0,
+    landDay: 0,
+    landNight: 0,
+    night: 0,
+    ifr: 0,
+    pic: 0,
+    copilot: 0,
+    dual: 0,
+    instructor: 0,
+    fstd: 0,
   };
 }
 
-function tooltipStyle() {
+function addTotals(a: Totals, b: Totals): Totals {
   return {
-    background: "rgba(255,255,255,0.98)",
-    border: "1px solid #e2e8f0",
-    borderRadius: "16px",
-    color: "#0f172a",
-    boxShadow: "0 18px 45px rgba(15, 23, 42, 0.12)",
+    se: a.se + b.se,
+    me: a.me + b.me,
+    mp: a.mp + b.mp,
+    total: a.total + b.total,
+    landDay: a.landDay + b.landDay,
+    landNight: a.landNight + b.landNight,
+    night: a.night + b.night,
+    ifr: a.ifr + b.ifr,
+    pic: a.pic + b.pic,
+    copilot: a.copilot + b.copilot,
+    dual: a.dual + b.dual,
+    instructor: a.instructor + b.instructor,
+    fstd: a.fstd + b.fstd,
   };
 }
 
-function flightRole(flight: Flight): string {
-  if (flight.synthetic_training_minutes > 0) return "SIM";
-  if (flight.pilot_in_command_minutes > 0) return "PIC";
-  if (flight.dual_minutes > 0) return "Dual";
-  if (flight.co_pilot_minutes > 0) return "Co-pilot";
-  return "Voo";
+function rowTotals(flight: Flight): Totals {
+  if (isSimulator(flight)) {
+    return {
+      ...emptyTotals(),
+      fstd: safe(flight.synthetic_training_minutes),
+    };
+  }
+
+  const se =
+    safe(flight.single_engine_vfr_minutes) +
+    safe(flight.single_engine_ifr_minutes);
+  const me =
+    safe(flight.multi_engine_vfr_minutes) +
+    safe(flight.multi_engine_ifr_minutes);
+  const total = safe(flight.total_minutes);
+
+  return {
+    se: se > 0 && me === 0 ? total : 0,
+    me: me > 0 && se === 0 ? total : 0,
+    mp: safe(flight.multi_pilot_minutes),
+    total,
+    landDay: Math.max(0, Math.round(flight.landings_day ?? 0)),
+    landNight: Math.max(0, Math.round(flight.landings_night ?? 0)),
+    night: safe(flight.night_minutes),
+    ifr: ifrMinutes(flight),
+    pic: safe(flight.pilot_in_command_minutes),
+    copilot: safe(flight.co_pilot_minutes),
+    dual: safe(flight.dual_minutes),
+    instructor: safe(flight.flight_instructor_minutes),
+    fstd: 0,
+  };
 }
 
-function roleClasses(role: string): string {
-  if (role === "PIC") return "bg-emerald-50 text-emerald-700 ring-emerald-600/10";
-  if (role === "Dual") return "bg-sky-50 text-sky-700 ring-sky-600/10";
-  if (role === "SIM") return "bg-violet-50 text-violet-700 ring-violet-600/10";
-  return "bg-slate-100 text-slate-600 ring-slate-500/10";
+function totalRows(flights: Flight[]): Totals {
+  return flights.reduce(
+    (acc, flight) => addTotals(acc, rowTotals(flight)),
+    emptyTotals(),
+  );
 }
 
-function MetricCard({
+function MetricCell({ value }: { value: number }) {
+  return <>{value > 0 ? hm(value) : ""}</>;
+}
+
+function TotalsRow({ label, totals }: { label: string; totals: Totals }) {
+  return (
+    <tr className="logbook-total-row">
+      <td colSpan={7} className="logbook-total-label">
+        {label}
+      </td>
+      <td><MetricCell value={totals.se} /></td>
+      <td><MetricCell value={totals.me} /></td>
+      <td><MetricCell value={totals.mp} /></td>
+      <td><MetricCell value={totals.total} /></td>
+      <td></td>
+      <td>{totals.landDay || ""}</td>
+      <td>{totals.landNight || ""}</td>
+      <td><MetricCell value={totals.night} /></td>
+      <td><MetricCell value={totals.ifr} /></td>
+      <td><MetricCell value={totals.pic} /></td>
+      <td><MetricCell value={totals.copilot} /></td>
+      <td><MetricCell value={totals.dual} /></td>
+      <td><MetricCell value={totals.instructor} /></td>
+      <td></td>
+      <td></td>
+      <td><MetricCell value={totals.fstd} /></td>
+      <td></td>
+    </tr>
+  );
+}
+
+function Logbook({
+  rows,
+  previous,
+  profileName,
+  page,
+}: {
+  rows: Flight[];
+  previous: Flight[];
+  profileName: string;
+  page: number;
+}) {
+  const pageTotals = totalRows(rows);
+  const previousTotals = totalRows(previous);
+  const cumulative = addTotals(pageTotals, previousTotals);
+  const padded: Array<Flight | null> = [...rows];
+
+  while (padded.length < LOGBOOK_ROWS) padded.push(null);
+
+  return (
+    <div className="logbook-paper print-logbook">
+      <div className="mb-3 flex items-end justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
+            Pilot logbook · AMC1 FCL.050
+          </p>
+          <p className="mt-1 text-sm font-semibold text-zinc-950">
+            {profileName || "Pilot"}
+          </p>
+        </div>
+        <p className="font-mono text-xs text-zinc-500">Página {page}</p>
+      </div>
+
+      <div className="logbook-scroll-inner">
+        <table className="logbook-table">
+          <thead>
+            <tr>
+              <th rowSpan={2}>1<br />Data</th>
+              <th colSpan={2}>2 · Partida</th>
+              <th colSpan={2}>3 · Chegada</th>
+              <th colSpan={2}>4 · Aeronave</th>
+              <th colSpan={2}>5 · Monopiloto</th>
+              <th rowSpan={2}>6<br />Multipiloto</th>
+              <th rowSpan={2}>7<br />Tempo total</th>
+              <th rowSpan={2}>8<br />PIC</th>
+              <th colSpan={2}>Aterragens</th>
+              <th colSpan={2}>9 · Condições operacionais</th>
+              <th colSpan={4}>10 · Função do piloto</th>
+              <th colSpan={3}>11 · Treino sintético</th>
+              <th rowSpan={2}>12<br />Observações / endors.</th>
+            </tr>
+            <tr>
+              <th>Local</th>
+              <th>UTC</th>
+              <th>Local</th>
+              <th>UTC</th>
+              <th>Tipo / modelo</th>
+              <th>Matrícula</th>
+              <th>SE</th>
+              <th>ME</th>
+              <th>Dia</th>
+              <th>Noite</th>
+              <th>Noite</th>
+              <th>IFR</th>
+              <th>PIC</th>
+              <th>Co-pilot</th>
+              <th>Dual</th>
+              <th>Instr.</th>
+              <th>Data</th>
+              <th>Tipo</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {padded.map((flight, index) => {
+              if (!flight) {
+                return (
+                  <tr className="logbook-entry-row" key={"blank-" + index}>
+                    {Array.from({ length: 24 }).map((_, cell) => (
+                      <td key={cell}></td>
+                    ))}
+                  </tr>
+                );
+              }
+
+              if (isSimulator(flight)) {
+                return (
+                  <tr className="logbook-entry-row" key={flight.id}>
+                    {Array.from({ length: 20 }).map((_, cell) => (
+                      <td key={cell}></td>
+                    ))}
+                    <td>{logDate(flight.date)}</td>
+                    <td>{flight.type_of_aircraft || flight.registration || "FSTD"}</td>
+                    <td><MetricCell value={safe(flight.synthetic_training_minutes)} /></td>
+                    <td className="logbook-left">
+                      {flight.remarks_and_endorsements || ""}
+                    </td>
+                  </tr>
+                );
+              }
+
+              const totals = rowTotals(flight);
+              const pilotName =
+                safe(flight.pilot_in_command_minutes) > 0
+                  ? "SELF"
+                  : flight.name_of_pilot_in_command || "";
+
+              return (
+                <tr className="logbook-entry-row" key={flight.id}>
+                  <td>{logDate(flight.date)}</td>
+                  <td>{flight.departure_airport_name || ""}</td>
+                  <td>{utcTime(flight.off_block)}</td>
+                  <td>{flight.arrival_airport_name || ""}</td>
+                  <td>{utcTime(flight.on_block)}</td>
+                  <td>{flight.type_of_aircraft || ""}</td>
+                  <td>{flight.registration || ""}</td>
+                  <td><MetricCell value={totals.se} /></td>
+                  <td><MetricCell value={totals.me} /></td>
+                  <td><MetricCell value={totals.mp} /></td>
+                  <td><MetricCell value={totals.total} /></td>
+                  <td className="logbook-left">{pilotName}</td>
+                  <td>{totals.landDay || ""}</td>
+                  <td>{totals.landNight || ""}</td>
+                  <td><MetricCell value={totals.night} /></td>
+                  <td><MetricCell value={totals.ifr} /></td>
+                  <td><MetricCell value={totals.pic} /></td>
+                  <td><MetricCell value={totals.copilot} /></td>
+                  <td><MetricCell value={totals.dual} /></td>
+                  <td><MetricCell value={totals.instructor} /></td>
+                  <td></td>
+                  <td></td>
+                  <td></td>
+                  <td className="logbook-left">
+                    {flight.remarks_and_endorsements || ""}
+                  </td>
+                </tr>
+              );
+            })}
+            <TotalsRow label="TOTAL ESTA PÁGINA" totals={pageTotals} />
+            <TotalsRow label="TOTAL PÁGINAS ANTERIORES" totals={previousTotals} />
+            <TotalsRow label="TOTAL" totals={cumulative} />
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-4 grid grid-cols-[1fr_280px] items-end gap-8 text-[10px] text-zinc-500">
+        <p>
+          Registo apresentado no formato de campos de AMC1 FCL.050 para
+          comparação com a caderneta de voo.
+        </p>
+        <div>
+          <div className="h-8 border-b border-zinc-500"></div>
+          <p className="mt-1 text-center">Assinatura do piloto</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Card({
   label,
   value,
   detail,
-  icon,
-  accent = false,
 }: {
   label: string;
   value: string;
-  detail: string;
-  icon: React.ReactNode;
-  accent?: boolean;
+  detail?: string;
 }) {
   return (
-    <article
-      className={`group relative overflow-hidden rounded-[1.6rem] border p-5 shadow-[0_10px_35px_rgba(15,23,42,0.04)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(15,23,42,0.08)] ${
-        accent
-          ? "border-sky-200 bg-gradient-to-br from-sky-50 via-white to-white"
-          : "border-slate-200/80 bg-white"
-      }`}
-    >
-      {accent ? (
-        <div className="absolute -right-10 -top-10 h-28 w-28 rounded-full bg-sky-200/40 blur-2xl" />
-      ) : null}
-      <div className="relative flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium text-slate-500">{label}</p>
-          <p className="mt-3 text-3xl font-semibold tracking-[-0.04em] text-slate-950">
-            {value}
-          </p>
-        </div>
-        <div
-          className={`rounded-2xl p-2.5 transition group-hover:scale-105 ${
-            accent ? "bg-sky-100 text-sky-700" : "bg-slate-100 text-slate-500"
-          }`}
-        >
-          {icon}
-        </div>
-      </div>
-      <p className="relative mt-3 text-sm leading-6 text-slate-500">{detail}</p>
-    </article>
-  );
-}
-
-function Panel({
-  title,
-  description,
-  children,
-  action,
-  className = "",
-}: {
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-  action?: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <section
-      className={`rounded-[1.75rem] border border-slate-200/80 bg-white p-5 shadow-[0_12px_40px_rgba(15,23,42,0.04)] sm:p-6 ${className}`}
-    >
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-base font-semibold tracking-tight text-slate-950">
-            {title}
-          </h2>
-          {description ? (
-            <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
-          ) : null}
-        </div>
-        {action}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function EmptyChart({
-  text = "Sem dados suficientes para este gráfico.",
-}: {
-  text?: string;
-}) {
-  return (
-    <div className="flex h-72 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-6 text-center text-sm text-slate-400">
-      {text}
-    </div>
-  );
-}
-
-function SelectField({
-  value,
-  onChange,
-  children,
-  label,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  children: React.ReactNode;
-  label: string;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400">
+    <div className="rounded-2xl border border-zinc-200 bg-white px-5 py-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
         {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-800 outline-none transition focus:border-sky-400 focus:ring-4 focus:ring-sky-100"
-      >
-        {children}
-      </select>
-    </label>
-  );
-}
-
-function ProgressBar({ value }: { value: number }) {
-  return (
-    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-      <div
-        className="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-400 transition-all duration-700"
-        style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
-      />
+      </p>
+      <p className="mt-2 text-2xl font-semibold tracking-[-0.035em] text-zinc-950">
+        {value}
+      </p>
+      {detail ? <p className="mt-1 text-xs text-zinc-500">{detail}</p> : null}
     </div>
   );
 }
 
-function DeltaBadge({ value }: { value: number | null }) {
-  if (value === null) {
-    return (
-      <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
-        Sem comparação
-      </span>
-    );
-  }
-
-  const positive = value >= 0;
+function Tab({
+  active,
+  onClick,
+  icon,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
-        positive
-          ? "bg-emerald-50 text-emerald-700"
-          : "bg-rose-50 text-rose-700"
-      }`}
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition " +
+        (active
+          ? "bg-zinc-950 text-white"
+          : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950")
+      }
     >
-      {positive ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
-      {Math.abs(value)}%
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function Badge({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex rounded-full bg-zinc-100 px-2 py-1 text-[10px] font-bold text-zinc-600">
+      {children}
     </span>
   );
 }
 
-function exportFlights(flights: Flight[]) {
-  const headers = [
+function csvEscape(value: unknown): string {
+  const text = String(value ?? "");
+  return /[",\n]/.test(text) ? '"' + text.replaceAll('"', '""') + '"' : text;
+}
+
+function exportCsv(flights: Flight[]) {
+  const header = [
     "date",
     "departure",
+    "off_block_utc",
     "arrival",
+    "on_block_utc",
     "aircraft",
     "registration",
-    "role",
     "pic_name",
     "total",
     "pic",
     "dual",
     "night",
     "ifr",
-    "landings",
+    "landings_day",
+    "landings_night",
+    "simulator",
     "remarks",
   ];
-
-  const escape = (value: unknown) => {
-    const text = String(value ?? "");
-    return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-  };
 
   const rows = flights.map((flight) => [
     flight.date,
     flight.departure_airport_name,
+    utcTime(flight.off_block),
     flight.arrival_airport_name,
+    utcTime(flight.on_block),
     flight.type_of_aircraft,
     flight.registration,
-    flightRole(flight),
     flight.name_of_pilot_in_command,
-    formatMinutes(flight.total_minutes || flight.synthetic_training_minutes),
-    formatMinutes(flight.pilot_in_command_minutes),
-    formatMinutes(flight.dual_minutes),
-    formatMinutes(flight.night_minutes),
-    formatMinutes(
-      flight.single_engine_ifr_minutes + flight.multi_engine_ifr_minutes,
-    ),
-    flight.landings_day + flight.landings_night,
+    hm(flight.total_minutes),
+    hm(flight.pilot_in_command_minutes),
+    hm(flight.dual_minutes),
+    hm(flight.night_minutes),
+    hm(ifrMinutes(flight)),
+    flight.landings_day,
+    flight.landings_night,
+    hm(flight.synthetic_training_minutes),
     flight.remarks_and_endorsements,
   ]);
 
-  const csv = [headers, ...rows]
-    .map((row) => row.map(escape).join(","))
+  const csv = [header, ...rows]
+    .map((row) => row.map(csvEscape).join(","))
     .join("\n");
-  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+
+  const blob = new Blob(["\uFEFF" + csv], {
+    type: "text/csv;charset=utf-8",
+  });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -408,21 +530,20 @@ export default function Home() {
   const [data, setData] = useState<FlightStatsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<FlightStatsErrorResponse | null>(null);
-  const [selectedPeriod, setSelectedPeriod] = useState<PeriodKey>("all");
-  const [selectedYear, setSelectedYear] = useState("all");
-  const [selectedAircraft, setSelectedAircraft] = useState("all");
-  const [selectedRegistration, setSelectedRegistration] = useState("all");
+  const [view, setView] = useState<ViewKey>("overview");
+  const [logPage, setLogPage] = useState(1);
+  const [flightPage, setFlightPage] = useState(1);
   const [search, setSearch] = useState("");
-  const [visibleRows, setVisibleRows] = useState(PAGE_SIZE);
-  const deferredSearch = useDeferredValue(search);
+  const [year, setYear] = useState("all");
+  const [aircraft, setAircraft] = useState("all");
+  const [registration, setRegistration] = useState("all");
 
-  const loadFlights = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
       const response = await fetch("/api/flights", {
-        method: "GET",
         cache: "no-store",
       });
       const payload = (await response.json()) as
@@ -440,61 +561,141 @@ export default function Home() {
 
       setData(payload);
     } catch (caught) {
-      const message =
-        caught instanceof Error ? caught.message : "Erro desconhecido.";
-      const code =
-        caught && typeof caught === "object" && "code" in caught
-          ? String(caught.code ?? "")
-          : undefined;
-      setError({ error: message, code });
+      setError({
+        error:
+          caught instanceof Error
+            ? caught.message
+            : "Erro desconhecido ao sincronizar.",
+        code:
+          caught && typeof caught === "object" && "code" in caught
+            ? String(caught.code ?? "")
+            : undefined,
+      });
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadFlights();
-  }, [loadFlights]);
+    void load();
+  }, [load]);
 
   useEffect(() => {
-    setVisibleRows(PAGE_SIZE);
-  }, [
-    deferredSearch,
-    selectedAircraft,
-    selectedPeriod,
-    selectedRegistration,
-    selectedYear,
-  ]);
+    setFlightPage(1);
+  }, [search, year, aircraft, registration]);
 
   const flights = data?.flights ?? [];
+  const profileName = data
+    ? [data.profile.firstName, data.profile.lastName].filter(Boolean).join(" ")
+    : "";
 
-  const filterOptions = useMemo(() => {
-    const years = uniqueSorted(
-      flights.map((flight) => flight.date?.slice(0, 4) ?? null),
-    ).reverse();
-    const aircraft = uniqueSorted(
-      flights.map((flight) => flight.type_of_aircraft),
+  const stats = useMemo(() => {
+    const total = sum(flights, (flight) => flight.total_minutes);
+    const pic = sum(flights, (flight) => flight.pilot_in_command_minutes);
+    const dual = sum(flights, (flight) => flight.dual_minutes);
+    const night = sum(flights, (flight) => flight.night_minutes);
+    const simulator = sum(
+      flights,
+      (flight) => flight.synthetic_training_minutes,
     );
-    const registrations = uniqueSorted(
-      flights.map((flight) => flight.registration),
+    const ifr = sum(flights, ifrMinutes);
+    const landings = flights.reduce(
+      (value, flight) =>
+        value +
+        Math.max(0, flight.landings_day ?? 0) +
+        Math.max(0, flight.landings_night ?? 0),
+      0,
     );
-    return { years, aircraft, registrations };
+
+    return { total, pic, dual, night, simulator, ifr, landings };
   }, [flights]);
 
-  const filteredFlights = useMemo(() => {
-    const query = deferredSearch.trim().toLowerCase();
+  const monthly = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const flight of flights) {
+      if (!flight.date) continue;
+      const key = flight.date.slice(0, 7);
+      const minutes =
+        safe(flight.total_minutes) + safe(flight.synthetic_training_minutes);
+      map.set(key, (map.get(key) ?? 0) + minutes);
+    }
+
+    return [...map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-12)
+      .map(([key, minutes]) => ({
+        key,
+        label: monthLabel(key),
+        minutes,
+      }));
+  }, [flights]);
+
+  const maxMonth = Math.max(1, ...monthly.map((item) => item.minutes));
+
+  const aircraftRows = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        registration: string;
+        models: Set<string>;
+        flights: number;
+        minutes: number;
+        pic: number;
+        ifr: number;
+        lastDate: string | null;
+      }
+    >();
+
+    for (const flight of flights) {
+      const key = flight.registration || "SEM MATRÍCULA";
+      const current =
+        map.get(key) || {
+          registration: key,
+          models: new Set<string>(),
+          flights: 0,
+          minutes: 0,
+          pic: 0,
+          ifr: 0,
+          lastDate: null,
+        };
+
+      if (flight.type_of_aircraft) current.models.add(flight.type_of_aircraft);
+      current.flights += 1;
+      current.minutes +=
+        safe(flight.total_minutes) + safe(flight.synthetic_training_minutes);
+      current.pic += safe(flight.pilot_in_command_minutes);
+      current.ifr += ifrMinutes(flight);
+      if (!current.lastDate || String(flight.date) > current.lastDate) {
+        current.lastDate = flight.date;
+      }
+      map.set(key, current);
+    }
+
+    return [...map.values()].sort((a, b) => b.minutes - a.minutes);
+  }, [flights]);
+
+  const options = useMemo(
+    () => ({
+      years: unique(flights.map((flight) => flight.date?.slice(0, 4))).reverse(),
+      aircraft: unique(flights.map((flight) => flight.type_of_aircraft)),
+      registrations: unique(flights.map((flight) => flight.registration)),
+    }),
+    [flights],
+  );
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
 
     return flights.filter((flight) => {
-      const matchesPeriod = dateMatchesPeriod(flight.date, selectedPeriod);
-      const matchesYear =
-        selectedYear === "all" || flight.date?.startsWith(selectedYear);
-      const matchesAircraft =
-        selectedAircraft === "all" ||
-        flight.type_of_aircraft === selectedAircraft;
-      const matchesRegistration =
-        selectedRegistration === "all" ||
-        flight.registration === selectedRegistration;
-      const searchable = [
+      if (year !== "all" && !flight.date?.startsWith(year)) return false;
+      if (aircraft !== "all" && flight.type_of_aircraft !== aircraft) return false;
+      if (registration !== "all" && flight.registration !== registration) {
+        return false;
+      }
+
+      if (!query) return true;
+
+      const text = [
         flight.date,
         flight.departure_airport_name,
         flight.arrival_airport_name,
@@ -502,1043 +703,533 @@ export default function Home() {
         flight.registration,
         flight.name_of_pilot_in_command,
         flight.remarks_and_endorsements,
-        flightRole(flight),
+        role(flight),
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
 
-      return (
-        matchesPeriod &&
-        matchesYear &&
-        matchesAircraft &&
-        matchesRegistration &&
-        (!query || searchable.includes(query))
-      );
+      return text.includes(query);
     });
-  }, [
-    deferredSearch,
-    flights,
-    selectedAircraft,
-    selectedPeriod,
-    selectedRegistration,
-    selectedYear,
-  ]);
+  }, [flights, year, aircraft, registration, search]);
 
-  const stats = useMemo(() => {
-    const flightRows = filteredFlights.filter(
-      (flight) => flight.total_minutes > 0,
-    );
-    const total = sum(filteredFlights, (flight) => flight.total_minutes);
-    const pic = sum(
-      filteredFlights,
-      (flight) => flight.pilot_in_command_minutes,
-    );
-    const dual = sum(filteredFlights, (flight) => flight.dual_minutes);
-    const night = sum(filteredFlights, (flight) => flight.night_minutes);
-    const simulator = sum(
-      filteredFlights,
-      (flight) => flight.synthetic_training_minutes,
-    );
-    const ifr = sum(
-      filteredFlights,
-      (flight) =>
-        flight.single_engine_ifr_minutes + flight.multi_engine_ifr_minutes,
-    );
-    const vfr = sum(
-      filteredFlights,
-      (flight) =>
-        flight.single_engine_vfr_minutes + flight.multi_engine_vfr_minutes,
-    );
-    const landings = sum(
-      filteredFlights,
-      (flight) => flight.landings_day + flight.landings_night,
-    );
-    const nightLandings = sum(
-      filteredFlights,
-      (flight) => flight.landings_night,
-    );
+  const flightPageCount = Math.max(1, Math.ceil(filtered.length / FLIGHT_ROWS));
+  const visibleFlights = filtered.slice(
+    (flightPage - 1) * FLIGHT_ROWS,
+    flightPage * FLIGHT_ROWS,
+  );
 
-    const airports = new Set(
-      filteredFlights
-        .flatMap((flight) => [
-          flight.departure_airport_name,
-          flight.arrival_airport_name,
-        ])
-        .filter(Boolean),
-    );
-
-    return {
-      total,
-      activity: total + simulator,
-      pic,
-      dual,
-      night,
-      simulator,
-      ifr,
-      vfr,
-      landings,
-      nightLandings,
-      flightCount: flightRows.length,
-      average: flightRows.length ? Math.round(total / flightRows.length) : 0,
-      airportCount: airports.size,
-    };
-  }, [filteredFlights]);
-
-  const comparison = useMemo(() => {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const previousYear = currentYear - 1;
-    const previousCutoff = new Date(previousYear, now.getMonth(), now.getDate(), 23, 59, 59);
-
-    const current = flights.filter((flight) => {
-      if (!flight.date) return false;
-      const date = new Date(`${flight.date}T12:00:00`);
-      return date.getFullYear() === currentYear && date <= now;
-    });
-
-    const previous = flights.filter((flight) => {
-      if (!flight.date) return false;
-      const date = new Date(`${flight.date}T12:00:00`);
-      return date.getFullYear() === previousYear && date <= previousCutoff;
-    });
-
-    const currentMinutes = sum(current, (flight) => flight.total_minutes);
-    const previousMinutes = sum(previous, (flight) => flight.total_minutes);
-    const delta = previousMinutes
-      ? Math.round(((currentMinutes - previousMinutes) / previousMinutes) * 100)
-      : null;
-
-    return {
-      currentYear,
-      previousYear,
-      currentMinutes,
-      previousMinutes,
-      currentFlights: current.filter((flight) => flight.total_minutes > 0).length,
-      previousFlights: previous.filter((flight) => flight.total_minutes > 0).length,
-      delta,
-    };
-  }, [flights]);
-
-  const monthlyData = useMemo(() => {
-    const map = new Map<
-      string,
-      { flightMinutes: number; simulatorMinutes: number; flights: number }
-    >();
-
-    for (const flight of filteredFlights) {
-      if (!flight.date) continue;
-      const key = flight.date.slice(0, 7);
-      const item = map.get(key) ?? {
-        flightMinutes: 0,
-        simulatorMinutes: 0,
-        flights: 0,
-      };
-      item.flightMinutes += flight.total_minutes;
-      item.simulatorMinutes += flight.synthetic_training_minutes;
-      item.flights += flight.total_minutes > 0 ? 1 : 0;
-      map.set(key, item);
-    }
-
-    return [...map.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-18)
-      .map(([key, value]) => ({
-        label: monthLabel(key),
-        flightHours: decimalHours(value.flightMinutes),
-        simulatorHours: decimalHours(value.simulatorMinutes),
-        flights: value.flights,
-      }));
-  }, [filteredFlights]);
-
-  const cumulativeData = useMemo(() => {
-    let running = 0;
-    return monthlyData.map((row) => {
-      running += (row.flightHours ?? 0) + (row.simulatorHours ?? 0);
-      return { label: row.label, total: Number(running.toFixed(1)) };
-    });
-  }, [monthlyData]);
-
-  const aircraftData = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const flight of filteredFlights) {
-      const label = flight.type_of_aircraft || "Sem modelo";
-      map.set(label, (map.get(label) ?? 0) + flight.total_minutes);
-    }
-    return [...map.entries()]
-      .map(([label, minutes]) => ({ label, hours: decimalHours(minutes) }))
-      .filter((row) => (row.hours ?? 0) > 0)
-      .sort((a, b) => (b.hours ?? 0) - (a.hours ?? 0))
-      .slice(0, 8);
-  }, [filteredFlights]);
-
-  const conditionsData = useMemo<ChartRow[]>(
+  const chronological = useMemo(
     () =>
-      [
-        { label: "VFR", value: stats.vfr },
-        { label: "IFR", value: stats.ifr },
-      ].filter((row) => (row.value ?? 0) > 0),
-    [stats.ifr, stats.vfr],
+      [...flights].sort((a, b) =>
+        String(a.off_block ?? a.date ?? "").localeCompare(
+          String(b.off_block ?? b.date ?? ""),
+        ),
+      ),
+    [flights],
   );
 
-  const airportData = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const flight of filteredFlights) {
-      for (const airport of [
-        flight.departure_airport_name,
-        flight.arrival_airport_name,
-      ]) {
-        if (!airport) continue;
-        map.set(airport, (map.get(airport) ?? 0) + 1);
-      }
-    }
-    return [...map.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([label, visits]) => ({ label, visits }));
-  }, [filteredFlights]);
-
-  const latestFlight = flights.find((flight) => flight.total_minutes > 0) ?? null;
-  const latestFlightDays = daysSince(latestFlight?.date);
-  const overallTotalMinutes = sum(flights, (flight) => flight.total_minutes);
-  const overallSimulatorMinutes = sum(
-    flights,
-    (flight) => flight.synthetic_training_minutes,
+  const logPageCount = Math.max(
+    1,
+    Math.ceil(chronological.length / LOGBOOK_ROWS),
   );
-  const totalMilestone = nextMilestone(overallTotalMinutes);
-  const picMilestone = nextMilestone(
-    sum(flights, (flight) => flight.pilot_in_command_minutes),
-  );
-  const visibleFlights = filteredFlights.slice(0, visibleRows);
-  const profileName = data
-    ? `${data.profile.firstName} ${data.profile.lastName}`.trim()
-    : "Flight Stats";
-  const activeFilterCount = [
-    selectedPeriod !== "all",
-    selectedYear !== "all",
-    selectedAircraft !== "all",
-    selectedRegistration !== "all",
-    Boolean(search.trim()),
-  ].filter(Boolean).length;
+  const safeLogPage = Math.min(logPage, logPageCount);
+  const logStart = (safeLogPage - 1) * LOGBOOK_ROWS;
+  const logRows = chronological.slice(logStart, logStart + LOGBOOK_ROWS);
+  const previousLogRows = chronological.slice(0, logStart);
 
-  const setPeriod = (period: PeriodKey) => {
-    setSelectedPeriod(period);
-    if (period !== "all") setSelectedYear("all");
-  };
-
-  const setYear = (year: string) => {
-    setSelectedYear(year);
-    if (year !== "all") setSelectedPeriod("all");
-  };
-
-  const resetFilters = () => {
-    setSelectedPeriod("all");
-    setSelectedYear("all");
-    setSelectedAircraft("all");
-    setSelectedRegistration("all");
-    setSearch("");
-  };
-
-  if (!data && loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f4f7fb] px-6">
-        <div className="w-full max-w-md rounded-[2rem] border border-slate-200/80 bg-white p-8 text-center shadow-[0_24px_70px_rgba(15,23,42,0.08)]">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
-            <RefreshCw className="animate-spin" size={26} />
-          </div>
-          <h1 className="mt-5 text-xl font-semibold text-slate-950">
-            A sincronizar o logbook
-          </h1>
-          <p className="mt-2 text-sm leading-6 text-slate-500">
-            A obter os dados mais recentes diretamente do FlightLogger.
-          </p>
-          <div className="mt-6 space-y-2" aria-hidden="true">
-            <div className="h-2 animate-pulse rounded-full bg-slate-100" />
-            <div className="mx-auto h-2 w-2/3 animate-pulse rounded-full bg-slate-100" />
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  if (!data && error) {
-    const needsToken = error.code === "FLIGHTLOGGER_NOT_CONFIGURED";
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-[#f4f7fb] px-6 py-12">
-        <section className="w-full max-w-2xl rounded-[2rem] border border-slate-200 bg-white p-8 shadow-[0_24px_70px_rgba(15,23,42,0.08)] sm:p-10">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
-            <ShieldCheck size={27} />
-          </div>
-          <h1 className="mt-6 text-2xl font-semibold tracking-tight text-slate-950">
-            {needsToken
-              ? "Falta ligar o FlightLogger"
-              : "Não foi possível sincronizar"}
-          </h1>
-          <p className="mt-3 text-sm leading-7 text-slate-600">{error.error}</p>
-          <button
-            type="button"
-            onClick={() => void loadFlights()}
-            className="mt-7 inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-200"
-          >
-            <RefreshCw size={16} />
-            Tentar novamente
-          </button>
-        </section>
-      </main>
-    );
-  }
+  const latest = flights.slice(0, 7);
 
   return (
-    <main className="min-h-screen bg-[#f4f7fb] text-slate-950">
-      <div className="pointer-events-none fixed inset-x-0 top-0 h-[520px] bg-[radial-gradient(circle_at_top_left,rgba(14,165,233,0.12),transparent_42%),radial-gradient(circle_at_top_right,rgba(124,58,237,0.08),transparent_38%)]" />
-      <div className="relative mx-auto max-w-[1500px] px-4 py-5 sm:px-6 lg:px-8 lg:py-8">
-        <header className="overflow-hidden rounded-[2.2rem] border border-slate-800 bg-slate-950 text-white shadow-[0_28px_80px_rgba(15,23,42,0.2)]">
-          <div className="relative p-6 sm:p-8 lg:p-10">
-            <div className="absolute -right-20 -top-24 h-80 w-80 rounded-full bg-sky-500/20 blur-3xl" />
-            <div className="absolute -bottom-32 left-1/3 h-80 w-80 rounded-full bg-violet-500/10 blur-3xl" />
-            <div className="relative grid gap-9 lg:grid-cols-[1fr_auto] lg:items-end">
-              <div className="max-w-3xl">
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-sky-100 backdrop-blur">
-                  <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-                  </span>
-                  FlightLogger ligado
-                </div>
-                <p className="mt-6 text-sm font-medium uppercase tracking-[0.18em] text-slate-400">
+    <main className="min-h-screen bg-stone-100 text-zinc-950">
+      <header className="screen-only sticky top-0 z-30 border-b border-zinc-200/90 bg-stone-100/95 backdrop-blur">
+        <div className="mx-auto flex max-w-[1500px] flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <Plane size={19} strokeWidth={2.1} />
+                <h1 className="text-lg font-semibold tracking-tight">
                   Flight Stats
-                </p>
-                <h1 className="mt-2 text-3xl font-semibold tracking-[-0.045em] sm:text-5xl">
-                  {profileName}
                 </h1>
-                <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300 sm:text-base">
-                  O teu logbook transformado numa visão clara de experiência,
-                  progressão, recência e distribuição operacional.
+              </div>
+              {data ? (
+                <p className="mt-0.5 text-xs text-zinc-500">
+                  {profileName}
+                  {data.profile.callSign ? " · " + data.profile.callSign : ""}
                 </p>
-                <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-300">
-                  <span className="inline-flex items-center gap-2">
-                    <Activity size={15} className="text-sky-300" />
-                    {flights.length} registos sincronizados
-                  </span>
-                  <span className="inline-flex items-center gap-2">
-                    <RefreshCw size={15} className="text-sky-300" />
-                    Atualizado {data ? formatDateTime(data.syncedAt) : "—"}
-                  </span>
-                </div>
-              </div>
+              ) : null}
+            </div>
 
-              <div className="w-full max-w-sm rounded-[1.75rem] border border-white/10 bg-white/[0.07] p-5 backdrop-blur-xl lg:w-[360px]">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-slate-300">Experiência total</p>
-                    <p className="mt-2 text-4xl font-semibold tracking-[-0.05em]">
-                      {formatMinutes(overallTotalMinutes + overallSimulatorMinutes)}
-                    </p>
-                    <p className="mt-2 text-xs text-slate-400">
-                      {formatMinutes(overallTotalMinutes)} voo · {formatMinutes(overallSimulatorMinutes)} sim
-                    </p>
-                  </div>
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-sky-400/15 text-sky-300">
-                    <Award size={22} />
-                  </div>
-                </div>
-                <div className="mt-5">
-                  <div className="mb-2 flex items-center justify-between text-xs text-slate-300">
-                    <span>Próximo marco: {totalMilestone.targetHours}h</span>
-                    <span>{formatMinutes(totalMilestone.remainingMinutes)} em falta</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-sky-400 to-cyan-300"
-                      style={{ width: `${totalMilestone.progress}%` }}
-                    />
-                  </div>
-                </div>
-                <div className="mt-5 flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={() => exportFlights(filteredFlights)}
-                    disabled={filteredFlights.length === 0}
-                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/15 disabled:opacity-40"
-                  >
-                    <Download size={16} />
-                    CSV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void loadFlights()}
-                    disabled={loading}
-                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-100 disabled:opacity-60"
-                  >
-                    <RefreshCw
-                      className={loading ? "animate-spin" : ""}
-                      size={16}
-                    />
-                    Atualizar
-                  </button>
-                </div>
-              </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => exportCsv(flights)}
+                disabled={!flights.length}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 disabled:opacity-40"
+              >
+                <Download size={15} />
+                CSV
+              </button>
+              <button
+                type="button"
+                onClick={() => void load()}
+                disabled={loading}
+                className="inline-flex items-center gap-2 rounded-xl bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-50"
+              >
+                <RefreshCw
+                  size={15}
+                  className={loading ? "animate-spin" : ""}
+                />
+                Atualizar
+              </button>
             </div>
           </div>
-        </header>
 
-        {error && data ? (
-          <div
-            className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
-            role="status"
-          >
-            <ShieldCheck className="mt-0.5 shrink-0" size={17} />
-            <div className="flex-1">
-              <p className="font-medium">A última atualização falhou</p>
-              <p className="mt-0.5 text-amber-700">{error.error}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setError(null)}
-              aria-label="Fechar aviso"
-              className="rounded-lg p-1 transition hover:bg-amber-100"
+          <nav className="flex gap-1 overflow-x-auto">
+            <Tab
+              active={view === "overview"}
+              onClick={() => setView("overview")}
+              icon={<Gauge size={15} />}
             >
-              <X size={16} />
-            </button>
+              Resumo
+            </Tab>
+            <Tab
+              active={view === "logbook"}
+              onClick={() => setView("logbook")}
+              icon={<BookOpen size={15} />}
+            >
+              Caderneta ANAC
+            </Tab>
+            <Tab
+              active={view === "flights"}
+              onClick={() => setView("flights")}
+              icon={<FileText size={15} />}
+            >
+              Voos
+            </Tab>
+            <Tab
+              active={view === "aircraft"}
+              onClick={() => setView("aircraft")}
+              icon={<TimerReset size={15} />}
+            >
+              Aeronaves
+            </Tab>
+          </nav>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
+        {loading && !data ? (
+          <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-sm text-zinc-500">
+            A sincronizar com o FlightLogger…
           </div>
         ) : null}
 
-        <section className="sticky top-3 z-20 mt-5 rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-4 shadow-[0_16px_45px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-5">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div className="flex flex-wrap gap-2" aria-label="Período">
-                {periodOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setPeriod(option.value)}
-                    className={`rounded-full px-3.5 py-2 text-sm font-medium transition focus:outline-none focus:ring-4 focus:ring-sky-100 ${
-                      selectedPeriod === option.value
-                        ? "bg-slate-950 text-white shadow-sm"
-                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex items-center gap-3 text-xs text-slate-500">
-                <span className="inline-flex items-center gap-1.5">
-                  <CheckCircle2 size={14} className="text-emerald-600" />
-                  {filteredFlights.length} resultados
-                </span>
-                {activeFilterCount ? (
-                  <button
-                    type="button"
-                    onClick={resetFilters}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 font-medium text-slate-600 transition hover:bg-slate-200"
-                  >
-                    <X size={13} />
-                    Limpar {activeFilterCount}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[0.8fr_1fr_1fr_1.5fr]">
-              <SelectField label="Ano" value={selectedYear} onChange={setYear}>
-                <option value="all">Todos os anos</option>
-                {filterOptions.years.map((year) => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
-              </SelectField>
-              <SelectField
-                label="Aeronave"
-                value={selectedAircraft}
-                onChange={setSelectedAircraft}
-              >
-                <option value="all">Todos os modelos</option>
-                {filterOptions.aircraft.map((aircraft) => (
-                  <option key={aircraft} value={aircraft}>
-                    {aircraft}
-                  </option>
-                ))}
-              </SelectField>
-              <SelectField
-                label="Matrícula"
-                value={selectedRegistration}
-                onChange={setSelectedRegistration}
-              >
-                <option value="all">Todas as matrículas</option>
-                {filterOptions.registrations.map((registration) => (
-                  <option key={registration} value={registration}>
-                    {registration}
-                  </option>
-                ))}
-              </SelectField>
-              <label className="block">
-                <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400">
-                  Pesquisa
-                </span>
-                <span className="flex items-center rounded-2xl border border-slate-200 bg-white px-3.5 focus-within:border-sky-400 focus-within:ring-4 focus-within:ring-sky-100">
-                  <Search size={16} className="text-slate-400" />
-                  <input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Aeroporto, matrícula, PIC, função..."
-                    className="w-full bg-transparent px-3 py-3 text-sm outline-none placeholder:text-slate-400"
-                  />
-                  {search ? (
-                    <button
-                      type="button"
-                      onClick={() => setSearch("")}
-                      aria-label="Limpar pesquisa"
-                      className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                    >
-                      <X size={15} />
-                    </button>
-                  ) : null}
-                </span>
-              </label>
-            </div>
+        {error ? (
+          <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            {error.error}
           </div>
-        </section>
+        ) : null}
 
-        <section className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-          <MetricCard
-            label="Tempo de voo"
-            value={formatMinutes(stats.total)}
-            detail={`${stats.flightCount} voos · média ${formatMinutes(stats.average)}`}
-            icon={<Clock3 size={20} />}
-            accent
-          />
-          <MetricCard
-            label="PIC"
-            value={formatMinutes(stats.pic)}
-            detail={`${stats.total ? Math.round((stats.pic / stats.total) * 100) : 0}% do tempo de voo`}
-            icon={<Plane size={20} />}
-          />
-          <MetricCard
-            label="IFR"
-            value={formatMinutes(stats.ifr)}
-            detail={`${formatMinutes(stats.vfr)} registadas em VFR`}
-            icon={<Gauge size={20} />}
-          />
-          <MetricCard
-            label="Noite"
-            value={formatMinutes(stats.night)}
-            detail={`${stats.nightLandings} aterragens noturnas`}
-            icon={<Moon size={20} />}
-          />
-          <MetricCard
-            label="Simulador"
-            value={formatMinutes(stats.simulator)}
-            detail={`${formatMinutes(stats.dual)} em instrução dual`}
-            icon={<Monitor size={20} />}
-          />
-          <MetricCard
-            label="Aterragens"
-            value={String(stats.landings)}
-            detail={`${stats.airportCount} aeroportos diferentes`}
-            icon={<PlaneLanding size={20} />}
-          />
-        </section>
+        {data && view === "overview" ? (
+          <div className="screen-only space-y-5">
+            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <Card
+                label="Voo"
+                value={hoursLabel(stats.total)}
+                detail={flights.filter((flight) => safe(flight.total_minutes) > 0).length + " voos"}
+              />
+              <Card label="PIC" value={hoursLabel(stats.pic)} />
+              <Card label="Dual" value={hoursLabel(stats.dual)} />
+              <Card label="IFR" value={hoursLabel(stats.ifr)} />
+              <Card label="Noite" value={hoursLabel(stats.night)} />
+              <Card
+                label="Simulador"
+                value={hoursLabel(stats.simulator)}
+                detail={stats.landings + " aterragens totais"}
+              />
+            </section>
 
-        <section className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_1fr]">
-          <Panel
-            title="Atividade mensal"
-            description="Horas de voo e simulador por mês, nos últimos 18 meses visíveis."
-            action={
-              <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
-                {formatMinutes(stats.activity)} selecionadas
-              </span>
-            }
-          >
-            {monthlyData.length ? (
-              <div className="h-80 w-full">
-                <ResponsiveContainer>
-                  <BarChart
-                    data={monthlyData}
-                    margin={{ top: 8, right: 8, bottom: 18, left: 0 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fill: "#64748b", fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fill: "#64748b", fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={tooltipStyle()}
-                      formatter={(value, name) => [
-                        `${Number(value).toFixed(1)} h`,
-                        name === "flightHours" ? "Voo" : "Simulador",
-                      ]}
-                    />
-                    <Legend
-                      formatter={(value) =>
-                        value === "flightHours" ? "Voo" : "Simulador"
-                      }
-                    />
-                    <Bar
-                      dataKey="flightHours"
-                      stackId="activity"
-                      fill="#0284c7"
-                      radius={[7, 7, 0, 0]}
-                    />
-                    <Bar
-                      dataKey="simulatorHours"
-                      stackId="activity"
-                      fill="#7c3aed"
-                      radius={[7, 7, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <EmptyChart />
-            )}
-          </Panel>
-
-          <Panel
-            title={`Comparação ${comparison.currentYear}`}
-            description={`Mesmo período de ${comparison.previousYear}, para uma comparação justa.`}
-          >
-            <div className="rounded-3xl bg-slate-950 p-5 text-white">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm text-slate-400">Este ano</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight">
-                    {formatMinutes(comparison.currentMinutes)}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-400">
-                    {comparison.currentFlights} voos
-                  </p>
+            <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="rounded-2xl border border-zinc-200 bg-white p-5">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold">Atividade mensal</h2>
+                  <span className="text-xs text-zinc-400">últimos 12 meses</span>
                 </div>
-                <DeltaBadge value={comparison.delta} />
-              </div>
-              <div className="mt-6 border-t border-white/10 pt-5">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-400">{comparison.previousYear}</span>
-                  <span className="font-medium">
-                    {formatMinutes(comparison.previousMinutes)} · {comparison.previousFlights} voos
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <TrendingUp size={18} className="text-sky-700" />
-                <p className="mt-3 text-sm font-medium text-slate-950">
-                  Ritmo anual
-                </p>
-                <p className="mt-1 text-sm leading-6 text-slate-500">
-                  {comparison.delta === null
-                    ? "Ainda não existe base comparável no ano anterior."
-                    : comparison.delta >= 0
-                      ? `Estás ${comparison.delta}% acima do mesmo período.`
-                      : `Estás ${Math.abs(comparison.delta)}% abaixo do mesmo período.`}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <CalendarDays size={18} className="text-sky-700" />
-                <p className="mt-3 text-sm font-medium text-slate-950">
-                  Último voo
-                </p>
-                <p className="mt-1 text-sm leading-6 text-slate-500">
-                  {latestFlightDays === null
-                    ? "Sem data disponível."
-                    : latestFlightDays === 0
-                      ? "Hoje"
-                      : `Há ${latestFlightDays} dias`}
-                  {latestFlight?.registration
-                    ? ` · ${latestFlight.registration}`
-                    : ""}
-                </p>
-              </div>
-            </div>
-          </Panel>
-        </section>
-
-        <section className="mt-5 grid gap-5 lg:grid-cols-2 xl:grid-cols-4">
-          <Panel title="Próximo marco total" description="Progresso para o próximo número redondo.">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-700">
-                <Target size={22} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-end justify-between gap-3">
-                  <p className="text-2xl font-semibold">{totalMilestone.targetHours}h</p>
-                  <p className="text-xs text-slate-500">
-                    faltam {formatMinutes(totalMilestone.remainingMinutes)}
-                  </p>
-                </div>
-                <div className="mt-3">
-                  <ProgressBar value={totalMilestone.progress} />
-                </div>
-              </div>
-            </div>
-          </Panel>
-
-          <Panel title="Próximo marco PIC" description="Evolução específica de pilot-in-command.">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-700">
-                <Award size={22} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-end justify-between gap-3">
-                  <p className="text-2xl font-semibold">{picMilestone.targetHours}h</p>
-                  <p className="text-xs text-slate-500">
-                    faltam {formatMinutes(picMilestone.remainingMinutes)}
-                  </p>
-                </div>
-                <div className="mt-3">
-                  <ProgressBar value={picMilestone.progress} />
-                </div>
-              </div>
-            </div>
-          </Panel>
-
-          <Panel title="Aeronave principal" description="Modelo com mais tempo nos filtros atuais.">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-violet-50 text-violet-700">
-                <Plane size={22} />
-              </div>
-              <div>
-                <p className="text-2xl font-semibold">
-                  {aircraftData[0]?.label ?? "—"}
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  {aircraftData[0]?.hours ? `${aircraftData[0].hours}h registadas` : "Sem dados"}
-                </p>
-              </div>
-            </div>
-          </Panel>
-
-          <Panel title="Aeroporto mais frequente" description="Partidas e chegadas combinadas.">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-amber-50 text-amber-700">
-                <MapPin size={22} />
-              </div>
-              <div>
-                <p className="text-2xl font-semibold">
-                  {airportData[0]?.label ?? "—"}
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  {airportData[0]
-                    ? `${airportData[0].visits} movimentos registados`
-                    : "Sem dados"}
-                </p>
-              </div>
-            </div>
-          </Panel>
-        </section>
-
-        <section className="mt-5 grid gap-5 xl:grid-cols-2">
-          <Panel
-            title="Progressão acumulada"
-            description="Evolução do total de atividade ao longo dos meses selecionados."
-          >
-            {cumulativeData.length ? (
-              <div className="h-72 w-full">
-                <ResponsiveContainer>
-                  <AreaChart
-                    data={cumulativeData}
-                    margin={{ top: 8, right: 8, bottom: 18, left: 0 }}
-                  >
-                    <defs>
-                      <linearGradient id="totalGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#0284c7" stopOpacity={0.24} />
-                        <stop offset="95%" stopColor="#0284c7" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                    <XAxis
-                      dataKey="label"
-                      tick={{ fill: "#64748b", fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fill: "#64748b", fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={tooltipStyle()}
-                      formatter={(value) => [`${value} h`, "Acumulado"]}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="total"
-                      stroke="#0284c7"
-                      fill="url(#totalGradient)"
-                      strokeWidth={2.5}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <EmptyChart />
-            )}
-          </Panel>
-
-          <Panel
-            title="Horas por modelo"
-            description="Distribuição consolidada por tipo de aeronave."
-          >
-            {aircraftData.length ? (
-              <div className="h-72 w-full">
-                <ResponsiveContainer>
-                  <BarChart
-                    data={aircraftData}
-                    layout="vertical"
-                    margin={{ top: 8, right: 20, bottom: 8, left: 30 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                    <XAxis
-                      type="number"
-                      tick={{ fill: "#64748b", fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="label"
-                      width={90}
-                      tick={{ fill: "#64748b", fontSize: 11 }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={tooltipStyle()}
-                      formatter={(value) => [`${value} h`, "Horas"]}
-                    />
-                    <Bar
-                      dataKey="hours"
-                      fill="#0f172a"
-                      radius={[0, 8, 8, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <EmptyChart />
-            )}
-          </Panel>
-        </section>
-
-        <section className="mt-5 grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
-          <Panel
-            title="VFR vs IFR"
-            description="Distribuição das horas classificadas por regras de voo."
-          >
-            {conditionsData.length ? (
-              <div className="grid gap-5 sm:grid-cols-[210px_1fr] sm:items-center">
-                <div className="relative h-56">
-                  <ResponsiveContainer>
-                    <PieChart>
-                      <Pie
-                        data={conditionsData}
-                        dataKey="value"
-                        nameKey="label"
-                        innerRadius={58}
-                        outerRadius={88}
-                        paddingAngle={4}
+                <div className="mt-6 flex h-56 items-end gap-2">
+                  {monthly.map((item) => {
+                    const height = Math.max(
+                      6,
+                      Math.round((item.minutes / maxMonth) * 100),
+                    );
+                    return (
+                      <div
+                        key={item.key}
+                        className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2"
                       >
-                        {conditionsData.map((entry, index) => (
-                          <Cell
-                            key={entry.label}
-                            fill={chartColors[index % chartColors.length]}
+                        <span className="text-[10px] font-medium text-zinc-500">
+                          {hm(item.minutes)}
+                        </span>
+                        <div className="flex h-40 w-full items-end rounded-lg bg-zinc-100 p-1">
+                          <div
+                            className="w-full rounded-md bg-zinc-900"
+                            style={{ height: height + "%" }}
                           />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={tooltipStyle()}
-                        formatter={(value) => [formatMinutes(Number(value)), ""]}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                    <div className="text-center">
-                      <p className="text-xs text-slate-400">Classificado</p>
-                      <p className="mt-1 text-lg font-semibold">
-                        {formatMinutes(stats.vfr + stats.ifr)}
-                      </p>
-                    </div>
-                  </div>
+                        </div>
+                        <span className="max-w-full truncate text-[10px] text-zinc-400">
+                          {item.label}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="space-y-3">
-                  {conditionsData.map((item, index) => (
+              </div>
+
+              <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                <div className="border-b border-zinc-200 px-5 py-4">
+                  <h2 className="text-sm font-semibold">Últimos registos</h2>
+                </div>
+                <div className="divide-y divide-zinc-100">
+                  {latest.map((flight) => (
                     <div
-                      key={item.label}
-                      className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3"
+                      key={flight.id}
+                      className="grid grid-cols-[82px_1fr_auto] items-center gap-3 px-5 py-3"
                     >
-                      <span className="flex items-center gap-2 text-sm text-slate-600">
-                        <span
-                          className="h-2.5 w-2.5 rounded-full"
-                          style={{
-                            backgroundColor:
-                              chartColors[index % chartColors.length],
-                          }}
-                        />
-                        {item.label}
+                      <span className="text-xs text-zinc-500">
+                        {displayDate(flight.date)}
                       </span>
-                      <span className="font-semibold text-slate-950">
-                        {formatMinutes(item.value ?? 0)}
-                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {flight.departure_airport_name || "—"} →{" "}
+                          {flight.arrival_airport_name || "—"}
+                        </p>
+                        <p className="truncate text-[11px] text-zinc-500">
+                          {flight.type_of_aircraft || "Sem modelo"} ·{" "}
+                          {flight.registration || "—"}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-mono text-xs font-semibold">
+                          {hm(
+                            isSimulator(flight)
+                              ? flight.synthetic_training_minutes
+                              : flight.total_minutes,
+                          )}
+                        </p>
+                        <Badge>{role(flight)}</Badge>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
-            ) : (
-              <EmptyChart text="O FlightLogger ainda não tem horas VFR/IFR classificadas nestes registos." />
-            )}
-          </Panel>
+            </section>
 
-          <Panel
-            title="Voos recentes"
-            description={`${filteredFlights.length} registos correspondem aos filtros atuais.`}
-            action={
-              <span className="hidden items-center gap-1.5 text-xs text-slate-400 sm:inline-flex">
-                <Route size={14} />
-                mais recente primeiro
-              </span>
-            }
-          >
-            <div className="space-y-3 md:hidden">
-              {visibleFlights.map((flight) => {
-                const role = flightRole(flight);
-                return (
-                  <article
-                    key={flight.id}
-                    className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs text-slate-400">{formatDate(flight.date)}</p>
-                        <p className="mt-1 font-semibold text-slate-950">
-                          {flight.departure_airport_name || "—"} → {flight.arrival_airport_name || "—"}
-                        </p>
-                      </div>
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${roleClasses(role)}`}
-                      >
-                        {role}
-                      </span>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <p className="text-xs text-slate-400">Aeronave</p>
-                        <p className="mt-1 font-medium text-slate-700">
-                          {flight.type_of_aircraft || "—"} · {flight.registration || "—"}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-slate-400">Tempo</p>
-                        <p className="mt-1 font-semibold text-slate-950">
-                          {formatMinutes(
-                            flight.total_minutes || flight.synthetic_training_minutes,
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-
-            <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[860px] border-separate border-spacing-0 text-left text-sm">
-                <thead>
-                  <tr className="text-[11px] uppercase tracking-[0.13em] text-slate-400">
-                    <th className="border-b border-slate-200 px-3 py-3 font-semibold">Data</th>
-                    <th className="border-b border-slate-200 px-3 py-3 font-semibold">Rota</th>
-                    <th className="border-b border-slate-200 px-3 py-3 font-semibold">Aeronave</th>
-                    <th className="border-b border-slate-200 px-3 py-3 font-semibold">Tempo</th>
-                    <th className="border-b border-slate-200 px-3 py-3 font-semibold">Função</th>
-                    <th className="border-b border-slate-200 px-3 py-3 font-semibold">PIC</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleFlights.map((flight) => {
-                    const role = flightRole(flight);
-                    return (
-                      <tr
-                        key={flight.id}
-                        className="text-slate-700 transition hover:bg-slate-50/80"
-                      >
-                        <td className="whitespace-nowrap border-b border-slate-100 px-3 py-4">
-                          {formatDate(flight.date)}
+            <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+              <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+                <h2 className="text-sm font-semibold">Aeronaves</h2>
+                <button
+                  type="button"
+                  onClick={() => setView("aircraft")}
+                  className="text-xs font-semibold text-zinc-500 hover:text-zinc-950"
+                >
+                  Ver todas
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-[760px] w-full text-left text-sm">
+                  <thead className="bg-zinc-50 text-[10px] uppercase tracking-wider text-zinc-500">
+                    <tr>
+                      <th className="px-5 py-3">Matrícula</th>
+                      <th className="px-5 py-3">Modelo FlightLogger</th>
+                      <th className="px-5 py-3 text-right">Registos</th>
+                      <th className="px-5 py-3 text-right">Tempo</th>
+                      <th className="px-5 py-3 text-right">Último</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {aircraftRows.slice(0, 8).map((row) => (
+                      <tr key={row.registration}>
+                        <td className="px-5 py-3 font-mono text-xs font-semibold">
+                          {row.registration}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-4">
-                          <span className="inline-flex items-center gap-2 font-medium text-slate-950">
-                            <MapPin size={14} className="text-sky-600" />
-                            {flight.departure_airport_name || "—"} → {flight.arrival_airport_name || "—"}
-                          </span>
-                        </td>
-                        <td className="border-b border-slate-100 px-3 py-4">
-                          <div className="font-medium text-slate-950">
-                            {flight.type_of_aircraft || "—"}
-                          </div>
-                          <div className="mt-1 text-xs text-slate-400">
-                            {flight.registration || "Sem matrícula"}
+                        <td className="px-5 py-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>{[...row.models].join(" / ") || "Sem modelo"}</span>
+                            {row.models.size > 1 ? (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                                REVER
+                              </span>
+                            ) : null}
                           </div>
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-4 font-semibold text-slate-950">
-                          {formatMinutes(
-                            flight.total_minutes || flight.synthetic_training_minutes,
-                          )}
+                        <td className="px-5 py-3 text-right">{row.flights}</td>
+                        <td className="px-5 py-3 text-right font-mono text-xs">
+                          {hm(row.minutes)}
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-4">
-                          <span
-                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${roleClasses(role)}`}
-                          >
-                            {role}
-                          </span>
-                        </td>
-                        <td className="border-b border-slate-100 px-3 py-4">
-                          {flight.name_of_pilot_in_command || "—"}
+                        <td className="px-5 py-3 text-right text-xs text-zinc-500">
+                          {displayDate(row.lastDate)}
                         </td>
                       </tr>
-                    );
-                  })}
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {data && view === "logbook" ? (
+          <div>
+            <div className="screen-only mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold">Caderneta ANAC / FCL.050</h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  {chronological.length} registos · {LOGBOOK_ROWS} por página
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setLogPage((value) => Math.max(1, value - 1))}
+                  disabled={safeLogPage <= 1}
+                  className="inline-flex items-center gap-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-30"
+                >
+                  <ChevronLeft size={14} />
+                  Anterior
+                </button>
+                <span className="min-w-24 text-center font-mono text-xs text-zinc-600">
+                  {safeLogPage} / {logPageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setLogPage((value) => Math.min(logPageCount, value + 1))
+                  }
+                  disabled={safeLogPage >= logPageCount}
+                  className="inline-flex items-center gap-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-30"
+                >
+                  Seguinte
+                  <ChevronRight size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="inline-flex items-center gap-2 rounded-xl bg-zinc-950 px-3 py-2 text-xs font-semibold text-white"
+                >
+                  <Printer size={14} />
+                  Imprimir página
+                </button>
+              </div>
+            </div>
+
+            <div className="logbook-scroll">
+              <Logbook
+                rows={logRows}
+                previous={previousLogRows}
+                profileName={profileName}
+                page={safeLogPage}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {data && view === "flights" ? (
+          <div className="screen-only space-y-4">
+            <section className="grid gap-2 rounded-2xl border border-zinc-200 bg-white p-4 md:grid-cols-[1.4fr_0.7fr_0.9fr_0.9fr]">
+              <label className="flex items-center rounded-xl border border-zinc-200 px-3">
+                <Search size={15} className="text-zinc-400" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Pesquisar voo, matrícula, aeroporto…"
+                  className="w-full bg-transparent px-3 py-2.5 text-sm outline-none"
+                />
+              </label>
+
+              <select
+                value={year}
+                onChange={(event) => setYear(event.target.value)}
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none"
+              >
+                <option value="all">Todos os anos</option>
+                {options.years.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+
+              <select
+                value={aircraft}
+                onChange={(event) => setAircraft(event.target.value)}
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none"
+              >
+                <option value="all">Todos os modelos</option>
+                {options.aircraft.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+
+              <select
+                value={registration}
+                onChange={(event) => setRegistration(event.target.value)}
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none"
+              >
+                <option value="all">Todas as matrículas</option>
+                {options.registrations.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+              <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+                <p className="text-sm font-semibold">{filtered.length} registos</p>
+                <p className="text-xs text-zinc-500">
+                  Página {Math.min(flightPage, flightPageCount)} / {flightPageCount}
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-[1050px] w-full text-left text-sm">
+                  <thead className="bg-zinc-50 text-[10px] uppercase tracking-wider text-zinc-500">
+                    <tr>
+                      <th className="px-4 py-3">Data</th>
+                      <th className="px-4 py-3">Rota</th>
+                      <th className="px-4 py-3">Aeronave</th>
+                      <th className="px-4 py-3">Função</th>
+                      <th className="px-4 py-3 text-right">Total</th>
+                      <th className="px-4 py-3 text-right">PIC</th>
+                      <th className="px-4 py-3 text-right">Dual</th>
+                      <th className="px-4 py-3 text-right">IFR</th>
+                      <th className="px-4 py-3 text-right">Noite</th>
+                      <th className="px-4 py-3 text-right">LDG</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {visibleFlights.map((flight) => (
+                      <tr key={flight.id} className="hover:bg-zinc-50/70">
+                        <td className="px-4 py-3 text-xs text-zinc-600">
+                          {displayDate(flight.date)}
+                        </td>
+                        <td className="px-4 py-3 font-medium">
+                          {flight.departure_airport_name || "—"} →{" "}
+                          {flight.arrival_airport_name || "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <p>{flight.type_of_aircraft || "Sem modelo"}</p>
+                          <p className="font-mono text-[11px] text-zinc-500">
+                            {flight.registration || "—"}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3"><Badge>{role(flight)}</Badge></td>
+                        <td className="px-4 py-3 text-right font-mono text-xs font-semibold">
+                          {hm(
+                            isSimulator(flight)
+                              ? flight.synthetic_training_minutes
+                              : flight.total_minutes,
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs">
+                          {hm(flight.pilot_in_command_minutes)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs">
+                          {hm(flight.dual_minutes)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs">
+                          {hm(ifrMinutes(flight))}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs">
+                          {hm(flight.night_minutes)}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {(flight.landings_day ?? 0) + (flight.landings_night ?? 0)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between border-t border-zinc-200 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => setFlightPage((value) => Math.max(1, value - 1))}
+                  disabled={flightPage <= 1}
+                  className="rounded-lg border border-zinc-200 px-3 py-2 text-xs font-semibold disabled:opacity-30"
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFlightPage((value) =>
+                      Math.min(flightPageCount, value + 1),
+                    )
+                  }
+                  disabled={flightPage >= flightPageCount}
+                  className="rounded-lg border border-zinc-200 px-3 py-2 text-xs font-semibold disabled:opacity-30"
+                >
+                  Seguinte
+                </button>
+              </div>
+            </section>
+          </div>
+        ) : null}
+
+        {data && view === "aircraft" ? (
+          <div className="screen-only overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+            <div className="border-b border-zinc-200 px-5 py-4">
+              <h2 className="text-sm font-semibold">Aeronaves</h2>
+              <p className="mt-1 text-xs text-zinc-500">
+                O modelo mostrado é o modelo devolvido pelo FlightLogger.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-[900px] w-full text-left text-sm">
+                <thead className="bg-zinc-50 text-[10px] uppercase tracking-wider text-zinc-500">
+                  <tr>
+                    <th className="px-5 py-3">Matrícula</th>
+                    <th className="px-5 py-3">Modelo FlightLogger</th>
+                    <th className="px-5 py-3 text-right">Registos</th>
+                    <th className="px-5 py-3 text-right">Tempo</th>
+                    <th className="px-5 py-3 text-right">PIC</th>
+                    <th className="px-5 py-3 text-right">IFR</th>
+                    <th className="px-5 py-3 text-right">Último voo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {aircraftRows.map((row) => (
+                    <tr key={row.registration}>
+                      <td className="px-5 py-3 font-mono text-xs font-semibold">
+                        {row.registration}
+                      </td>
+                      <td className="px-5 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{[...row.models].join(" / ") || "Sem modelo"}</span>
+                          {row.models.size > 1 ? (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                              REVER
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-right">{row.flights}</td>
+                      <td className="px-5 py-3 text-right font-mono text-xs font-semibold">
+                        {hm(row.minutes)}
+                      </td>
+                      <td className="px-5 py-3 text-right font-mono text-xs">
+                        {hm(row.pic)}
+                      </td>
+                      <td className="px-5 py-3 text-right font-mono text-xs">
+                        {hm(row.ifr)}
+                      </td>
+                      <td className="px-5 py-3 text-right text-xs text-zinc-500">
+                        {displayDate(row.lastDate)}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-
-            {visibleFlights.length === 0 ? (
-              <div className="py-12 text-center text-sm text-slate-400">
-                Sem voos para os filtros selecionados.
-              </div>
-            ) : null}
-
-            {visibleRows < filteredFlights.length ? (
-              <div className="mt-5 flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => setVisibleRows((current) => current + PAGE_SIZE)}
-                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-slate-100"
-                >
-                  Mostrar mais voos
-                </button>
-              </div>
-            ) : null}
-          </Panel>
-        </section>
-
-        <footer className="mt-7 flex flex-col gap-2 px-2 pb-4 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-          <span>
-            Dados lidos diretamente do FlightLogger; nenhum voo é guardado nesta aplicação.
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Sparkles size={13} />
-            Dashboard atualizado em tempo real
-          </span>
-        </footer>
+          </div>
+        ) : null}
       </div>
     </main>
   );
