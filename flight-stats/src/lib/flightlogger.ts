@@ -300,32 +300,38 @@ export function normalizeAircraftModel(value: unknown): string | null {
   const text = cleanText(value);
   if (!text) return null;
 
-  const upper = text
+  let model = text
     .toUpperCase()
     .replace(/[–—]/g, "-")
     .replace(/\s+/g, " ")
     .trim();
 
-  const pa28 = upper.replace(/^PIPER\s+/, "");
-  if (/^PA[- ]?28(?:[- ]|$)/.test(pa28) && !/^PA[- ]?28R/.test(pa28)) {
-    return "PA-28";
+  // Normalize only an explicit FlightLogger model. Never infer a model from
+  // a registration prefix: CS- is a Portuguese prefix, not "Tecnam P2008".
+  model = model.replace(/^CESSNA\s+C?\s*152\b/, "C152");
+  model = model.replace(/^C\s*152\b/, "C152");
+  if (model === "152") model = "C152";
+
+  model = model.replace(/^CESSNA\s+C?\s*172\b/, "C172");
+  model = model.replace(/^C\s*172\b/, "C172");
+  if (model === "172") model = "C172";
+
+  model = model.replace(/^TECNAM\s+/, "");
+
+  if (/^PIPER\s+PA[ -]?28\b/.test(model)) {
+    model = model.replace(/^PIPER\s+/, "").replace(/^PA[ -]?28/, "PA-28");
+  }
+  if (/^PA[ ]?28\b/.test(model)) {
+    model = model.replace(/^PA[ ]?28/, "PA-28");
+  }
+  if (/^P[ -]?2008\b/.test(model)) {
+    model = model.replace(/^P[ -]?2008/, "P2008");
+  }
+  if (/^P[ -]?2006T\b/.test(model)) {
+    model = model.replace(/^P[ -]?2006T/, "P2006T");
   }
 
-  const p2008 = upper.replace(/^TECNAM\s+/, "");
-  if (/^P[- ]?2008(?:\s|$)/.test(p2008)) {
-    return "P2008";
-  }
-
-  return upper;
-}
-
-function inferredAircraftModel(
-  registration: string | null,
-  model: unknown,
-): string | null {
-  if (registration?.startsWith("OE-")) return "PA-28";
-  if (registration?.startsWith("CS-")) return "P2008";
-  return normalizeAircraftModel(model);
+  return model;
 }
 
 function mapLogbookEntry(entry: FlightLoggerLogbookEntry): Flight {
@@ -340,10 +346,7 @@ function mapLogbookEntry(entry: FlightLoggerLogbookEntry): Flight {
     off_block: offBlock,
     arrival_airport_name: cleanText(entry.arrivalAirportName),
     on_block: onBlock,
-    type_of_aircraft: inferredAircraftModel(
-      registration,
-      entry.typeOfAircraft,
-    ),
+    type_of_aircraft: normalizeAircraftModel(entry.typeOfAircraft),
     registration,
     name_of_pilot_in_command: cleanText(entry.nameOfPilotInCommand),
     total_minutes: secondsToMinutes(entry.totalSeconds),
@@ -420,10 +423,7 @@ function mapAccountFlight(entry: AccountFlight, profile: AccountUser): Flight {
     off_block: offBlock,
     arrival_airport_name: cleanText(entry.arrivalAirport?.name),
     on_block: onBlock,
-    type_of_aircraft: inferredAircraftModel(
-      registration,
-      entry.aircraft?.model,
-    ),
+    type_of_aircraft: normalizeAircraftModel(entry.aircraft?.model),
     registration,
     name_of_pilot_in_command: pilotName,
     total_minutes: isSimulator ? 0 : secondsToMinutes(flightSeconds),
