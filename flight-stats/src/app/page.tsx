@@ -981,6 +981,23 @@ export default function Home() {
         {data && view === "overview" ? (
           <div className="screen-only space-y-4">
             <section className="fs-hero">
+              <div className="fs-ofp-titlebar">
+                <div>
+                  <span>DOCUMENT</span>
+                  <strong>FLIGHT STATS / EXPERIENCE OFP</strong>
+                </div>
+                <div>
+                  <span>PILOT</span>
+                  <strong>{profileName || "—"}</strong>
+                </div>
+                <div>
+                  <span>UPDATED UTC</span>
+                  <strong>
+                    {displayDate(data.syncedAt)} {utcTime(data.syncedAt)}Z
+                  </strong>
+                </div>
+              </div>
+
               <div className="fs-hero-main">
                 <div>
                   <p className="fs-eyebrow">TOTAL EXPERIENCE</p>
