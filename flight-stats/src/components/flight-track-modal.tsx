@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, MapPinned, Navigation, Plane, Radar, X } from "lucide-react";
+import { AlertTriangle, MapPinned, Navigation, Plane, X } from "lucide-react";
 
 import type { Flight } from "@/lib/flight-types";
 import { supabase } from "@/lib/supabase";
@@ -103,9 +103,11 @@ function buildSegments(points: TrackPoint[]): TrackPoint[][] {
   for (let index = 1; index < points.length; index += 1) {
     const previous = points[index - 1];
     const current = points[index];
-    const shouldSplit =
-      pointGapMinutes(previous, current) > 6 ||
-      haversineNm(previous, current) > 35;
+    const gapMinutes = pointGapMinutes(previous, current);
+    const distanceNm = haversineNm(previous, current);
+    const impliedSpeed =
+      gapMinutes > 0 ? distanceNm / (gapMinutes / 60) : Number.POSITIVE_INFINITY;
+    const shouldSplit = gapMinutes > 2.5 || impliedSpeed > 300;
 
     if (shouldSplit) segments.push([current]);
     else segments[segments.length - 1].push(current);
@@ -342,7 +344,7 @@ export function FlightTrackModal({ flight, onClose }: Props) {
             track_deg: numberValue(point.track_deg),
             vertical_rate_fpm: numberValue(point.vertical_rate_fpm),
             callsign: String(point.callsign ?? "").trim() || null,
-            icao_hex: String(point.icao_hex ?? "").trim().toLowerCase() || null,
+            icao_hex: String(point.icao_hex ?? "").trim().toUpperCase() || null,
             source: String(point.source ?? "").trim() || null,
           })),
         );
@@ -362,28 +364,22 @@ export function FlightTrackModal({ flight, onClose }: Props) {
     if (!points.length) return null;
 
     let distance = 0;
-    let longestGap = 0;
-    let intervalTotal = 0;
-    let intervalCount = 0;
+    let observedMinutes = 0;
 
     for (let index = 1; index < points.length; index += 1) {
       const previous = points[index - 1];
       const current = points[index];
-      const gap = pointGapMinutes(previous, current);
-      longestGap = Math.max(longestGap, gap);
+      const gapMinutes = pointGapMinutes(previous, current);
+      const distanceNm = haversineNm(previous, current);
+      const impliedSpeed =
+        gapMinutes > 0
+          ? distanceNm / (gapMinutes / 60)
+          : Number.POSITIVE_INFINITY;
+      const connected = gapMinutes <= 2.5 && impliedSpeed <= 300;
 
-      const intervalSeconds =
-        (new Date(current.observed_at).getTime() -
-          new Date(previous.observed_at).getTime()) /
-        1000;
-
-      if (intervalSeconds > 0 && intervalSeconds < 180) {
-        intervalTotal += intervalSeconds;
-        intervalCount += 1;
-      }
-
-      if (gap <= 6 && haversineNm(previous, current) <= 35) {
-        distance += haversineNm(previous, current);
+      if (connected) {
+        distance += distanceNm;
+        observedMinutes += gapMinutes;
       }
     }
 
@@ -403,12 +399,6 @@ export function FlightTrackModal({ flight, onClose }: Props) {
       new Set(points.map((point) => point.source).filter(Boolean) as string[]),
     );
 
-    const first = points[0].observed_at;
-    const last = points[points.length - 1].observed_at;
-    const observedMinutes = Math.max(
-      0,
-      (new Date(last).getTime() - new Date(first).getTime()) / 60_000,
-    );
     const blockMinutes =
       flight.off_block && flight.on_block
         ? Math.max(
@@ -419,63 +409,28 @@ export function FlightTrackModal({ flight, onClose }: Props) {
           )
         : 0;
 
-    const movementPoints = points.filter(
-      (point) => (point.ground_speed_kt ?? 0) >= 35,
-    );
+    const coverage =
+      blockMinutes > 0
+        ? Math.min(100, Math.round((observedMinutes / blockMinutes) * 100))
+        : null;
 
     return {
       distance,
       maxAltitude: altitudes.length ? Math.max(...altitudes) : null,
-      minAltitude: altitudes.length ? Math.min(...altitudes) : null,
       maxSpeed: speeds.length ? Math.max(...speeds) : null,
-      first,
-      last,
-      observedMinutes,
-      blockMinutes,
-      coverage:
-        blockMinutes > 0
-          ? Math.min(100, Math.round((observedMinutes / blockMinutes) * 100))
-          : null,
-      avgIntervalSeconds:
-        intervalCount > 0 ? Math.round(intervalTotal / intervalCount) : null,
-      longestGap,
-      segments: buildSegments(points).length,
+      first: points[0].observed_at,
+      last: points[points.length - 1].observed_at,
+      coverage,
       callsigns,
       hexes,
       sources,
-      movementStart: movementPoints[0]?.observed_at ?? null,
-      movementEnd:
-        movementPoints.length > 0
-          ? movementPoints[movementPoints.length - 1].observed_at
-          : null,
     };
   }, [points, flight]);
 
-  const sourceTraceUrl = useMemo(() => {
-    const hex = trackStats?.hexes[0];
-    const date = flight.date?.slice(0, 10);
-    if (!hex || !date) return null;
-
-    const base = trackStats?.sources.some((source) =>
-      source.includes("airplanes.live"),
-    )
-      ? "https://globe.airplanes.live/"
-      : "https://adsb.lol/";
-
-    const params = new URLSearchParams({
-      icao: hex,
-      showTrace: date,
-    });
-
-    if (flight.off_block) {
-      params.set("startTime", new Date(flight.off_block).toISOString().slice(11, 19));
-    }
-    if (flight.on_block) {
-      params.set("endTime", new Date(flight.on_block).toISOString().slice(11, 19));
-    }
-
-    return base + "?" + params.toString();
-  }, [flight, trackStats]);
+  const hasUsableTrack =
+    points.length >= 10 &&
+    ((trackStats?.coverage ?? 0) >= 70 ||
+      ((trackStats?.coverage ?? 0) >= 35 && points.length >= 30));
 
 
   return (
@@ -485,8 +440,8 @@ export function FlightTrackModal({ flight, onClose }: Props) {
         if (event.currentTarget === event.target) onClose();
       }}
     >
-      <div className="track-modal max-h-[94vh] w-full max-w-7xl overflow-y-auto border border-slate-600 bg-[#e9ece7] shadow-2xl">
-        <div className="track-modal-head sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-600 px-5 py-4 backdrop-blur sm:px-6">
+      <div className="max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-3xl border border-zinc-200 bg-stone-50 shadow-2xl">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-zinc-200 bg-stone-50/95 px-5 py-4 backdrop-blur sm:px-6">
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <Plane size={18} />
@@ -529,131 +484,73 @@ export function FlightTrackModal({ flight, onClose }: Props) {
               <MapView points={points} />
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="track-evidence-cell">
-                  <p>TRACK DISTANCE</p>
-                  <strong>{trackStats?.distance.toFixed(1)} NM</strong>
-                  <span>{trackStats?.segments} observed segment(s)</span>
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                    Distância ADS-B
+                  </p>
+                  <p className="mt-2 text-xl font-semibold">
+                    {trackStats?.distance.toFixed(1)} NM
+                  </p>
                 </div>
-                <div className="track-evidence-cell">
-                  <p>ALTITUDE / GS</p>
-                  <strong>
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                    Altitude máx.
+                  </p>
+                  <p className="mt-2 text-xl font-semibold">
                     {trackStats?.maxAltitude === null
                       ? "—"
                       : Math.round(trackStats?.maxAltitude ?? 0).toLocaleString(
                           "pt-PT",
-                        ) + " FT"}
-                  </strong>
-                  <span>
-                    MAX GS{" "}
+                        ) + " ft"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                    GS máx.
+                  </p>
+                  <p className="mt-2 text-xl font-semibold">
                     {trackStats?.maxSpeed === null
                       ? "—"
-                      : Math.round(trackStats?.maxSpeed ?? 0) + " KT"}
-                  </span>
+                      : Math.round(trackStats?.maxSpeed ?? 0) + " kt"}
+                  </p>
                 </div>
-                <div className="track-evidence-cell">
-                  <p>OBSERVED WINDOW</p>
-                  <strong>
-                    {timeLabel(trackStats?.first)}–{timeLabel(trackStats?.last)}Z
-                  </strong>
-                  <span>
-                    {trackStats?.coverage === null
-                      ? "COVERAGE —"
-                      : "SPAN / BLOCK " + trackStats?.coverage + "%"}
-                  </span>
-                </div>
-                <div className="track-evidence-cell">
-                  <p>TRACK RESOLUTION</p>
-                  <strong>{points.length} PTS</strong>
-                  <span>
-                    AVG{" "}
-                    {trackStats?.avgIntervalSeconds === null
-                      ? "—"
-                      : trackStats?.avgIntervalSeconds + " SEC"}
-                  </span>
-                </div>
-              </div>
-
-              <div className="track-record-panel">
-                <div className="track-record-head">
-                  <div className="flex items-center gap-2">
-                    <Radar size={15} />
-                    <strong>FLIGHT EVIDENCE</strong>
-                  </div>
-                  <span>MATCH = REGISTRATION + MODE-S + UTC WINDOW</span>
-                </div>
-                <div className="track-record-grid">
-                  <div>
-                    <span>FLIGHTLOGGER ID</span>
-                    <strong>{flight.id}</strong>
-                  </div>
-                  <div>
-                    <span>TRANSPONDER CALLSIGN</span>
-                    <strong>
-                      {trackStats?.callsigns.length
-                        ? trackStats.callsigns.join(" / ")
-                        : "NOT BROADCAST"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>MODE-S / ICAO24</span>
-                    <strong>
-                      {trackStats?.hexes.length
-                        ? trackStats.hexes.map((hex) => hex.toUpperCase()).join(" / ")
-                        : "—"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>BLOCK UTC</span>
-                    <strong>
-                      {timeLabel(flight.off_block)}–{timeLabel(flight.on_block)}Z
-                    </strong>
-                  </div>
-                  <div>
-                    <span>ADS-B MOVEMENT</span>
-                    <strong>
-                      {trackStats?.movementStart
-                        ? timeLabel(trackStats.movementStart) +
-                          "–" +
-                          timeLabel(trackStats.movementEnd) +
-                          "Z"
-                        : "—"}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>DATA SOURCE</span>
-                    <strong>
-                      {trackStats?.sources.length
-                        ? trackStats.sources
-                            .map((source) =>
-                              source
-                                .replace("-history", "")
-                                .replace("adsb.lol", "ADSB.LOL")
-                                .replace("airplanes.live", "AIRPLANES.LIVE"),
-                            )
-                            .join(" / ")
-                        : "—"}
-                    </strong>
-                  </div>
-                </div>
-                <div className="track-record-foot">
-                  <span>
-                    This is the recorded FlightLogger flight combined with the
-                    observed ADS-B trace; missing coverage is left as a gap and
-                    is never interpolated.
-                  </span>
-                  {sourceTraceUrl ? (
-                    <a
-                      href={sourceTraceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="track-source-link"
-                    >
-                      OPEN SOURCE TRACE <ExternalLink size={12} />
-                    </a>
-                  ) : null}
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                    Pontos
+                  </p>
+                  <p className="mt-2 text-xl font-semibold">{points.length}</p>
+                  <p className="mt-1 text-[11px] text-zinc-500">
+                    {timeLabel(trackStats?.first)}–{timeLabel(trackStats?.last)} UTC
+                  </p>
                 </div>
               </div>
             </>
+          ) : points.length >= 2 ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-7 text-center">
+              <AlertTriangle className="mx-auto text-amber-600" size={28} />
+              <p className="mt-3 text-sm font-semibold text-amber-950">
+                Fragmento ADS-B demasiado incompleto para mostrar como trajetória
+              </p>
+              <p className="mx-auto mt-2 max-w-2xl text-xs leading-5 text-amber-800">
+                Foram encontrados {points.length} pontos entre{" "}
+                {timeLabel(trackStats?.first)} e {timeLabel(trackStats?.last)} UTC,
+                cobrindo aproximadamente {trackStats?.coverage ?? 0}% do block.
+                Para não representar um pequeno fragmento como se fosse o voo
+                completo, o mapa fica oculto.
+              </p>
+              <div className="mx-auto mt-4 flex max-w-xl flex-wrap justify-center gap-2 text-[11px] text-amber-900">
+                {trackStats?.callsigns.length ? (
+                  <span className="rounded-full border border-amber-300 bg-white/60 px-2.5 py-1">
+                    Callsign: {trackStats.callsigns.join(" / ")}
+                  </span>
+                ) : null}
+                {trackStats?.hexes.length ? (
+                  <span className="rounded-full border border-amber-300 bg-white/60 px-2.5 py-1">
+                    Mode-S: {trackStats.hexes.join(" / ")}
+                  </span>
+                ) : null}
+              </div>
+            </div>
           ) : (
             <div className="rounded-2xl border border-zinc-200 bg-white p-7 text-center">
               <MapPinned className="mx-auto text-zinc-400" size={28} />
@@ -696,10 +593,22 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                 ADS-B
               </p>
               <p className="mt-2 text-sm font-semibold">
-                {points.length ? "Track disponível" : "Sem track"}
+                {hasUsableTrack
+                  ? "Track com cobertura suficiente"
+                  : points.length
+                    ? "Apenas fragmento parcial"
+                    : "Sem track"}
               </p>
               <p className="mt-1 text-[11px] text-zinc-500">
-                Fontes: adsb.lol / airplanes.live · gravação e histórico
+                {trackStats?.callsigns.length
+                  ? trackStats.callsigns.join(" / ") + " · "
+                  : ""}
+                {trackStats?.hexes.length
+                  ? trackStats.hexes.join(" / ") + " · "
+                  : ""}
+                {trackStats?.coverage !== null && trackStats
+                  ? trackStats.coverage + "% cobertura"
+                  : "sem cobertura"}
               </p>
             </div>
           </div>
