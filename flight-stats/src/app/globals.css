@@ -1274,7 +1274,7 @@ button {
   .fs-tab, .fs-button { min-height: 40px; font-size: 12px; letter-spacing: .035em; }
   .fs-tab { padding: 8px 13px; }
   .fs-button { padding-inline: 15px; }
-  .fs-flow { background: var(--surface); }
+  .fs-flow { overflow: visible; background: var(--surface); }
   .fs-hero { min-height: 0; }
   .fs-ofp-titlebar { padding: 16px 28px 12px; }
   .fs-ofp-titlebar span, .fs-eyebrow, .fs-ribbon-cell span,
@@ -1374,6 +1374,8 @@ button {
   .fs-panel-heading { padding: 22px 16px 12px; }
   .fs-panel-heading h2 { font-size: 20px; }
   .fs-chart { gap: 4px; padding-inline: 13px; height: 230px; }
+  .fs-chart { overflow-x: auto; }
+  .fs-chart-item { flex: 1 0 38px; }
   .fs-chart-track { height: 150px; }
   .fs-chart-total, .fs-chart-month { font-size: 9px; }
   .fs-chart-legend { padding-inline: 16px; }
