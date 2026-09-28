@@ -293,7 +293,7 @@ function MapView({ points }: { points: TrackPoint[] }) {
       </svg>
       <div className="flex items-center justify-between gap-3 border-t border-zinc-200 bg-white px-3 py-2 text-[10px] text-zinc-500">
         <span>Trajetória ADS-B · linha interrompida quando há perda de cobertura</span>
-        <span>© OpenStreetMap contributors · ADS-B: adsb.lol / airplanes.live</span>
+        <span>© OpenStreetMap contributors · fontes ADS-B identificadas no detalhe</span>
       </div>
     </div>
   );
@@ -529,7 +529,7 @@ export function FlightTrackModal({ flight, onClose }: Props) {
             <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
               {loadError}
             </div>
-          ) : points.length >= 2 ? (
+          ) : hasUsableTrack ? (
             <>
               <MapView points={points} />
 
