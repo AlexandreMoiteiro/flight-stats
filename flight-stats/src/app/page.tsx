@@ -569,10 +569,6 @@ function SynopticMotif() {
         <path d="M135 55 C183 93 205 149 197 215 C191 269 161 312 159 361" />
       </g>
 
-      <rect className="fs-heat-window fs-heat-window--long" x="438" y="238" width="276" height="44" rx="2" />
-      <rect className="fs-heat-window fs-heat-window--small" x="550" y="98" width="54" height="60" rx="2" />
-      <rect className="fs-heat-window-border" x="438" y="238" width="276" height="44" rx="2" />
-      <rect className="fs-heat-window-border" x="550" y="98" width="54" height="60" rx="2" />
       <rect x="0" y="0" width="900" height="420" filter="url(#fs-soft-grain)" opacity="0.32" />
     </svg>
   );
@@ -1083,6 +1079,9 @@ export default function Home() {
                 </div>
 
                 <div className="fs-hero-side">
+                  <div className="fs-hero-scan" aria-hidden="true">
+                    <span />
+                  </div>
                   <div>
                     <span>ESTE ANO</span>
                     <strong>{hoursLabel(stats.ytd)}</strong>
@@ -1135,7 +1134,7 @@ export default function Home() {
                 <div className="fs-panel-heading">
                   <div>
                     <p className="fs-eyebrow fs-eyebrow--dark">ACTIVITY</p>
-                    <h2>Ritmo de voo</h2>
+                    <h2>Atividade de voo</h2>
                   </div>
                   <span>12 meses</span>
                 </div>
@@ -1184,7 +1183,7 @@ export default function Home() {
                 <div className="fs-panel-heading">
                   <div>
                     <p className="fs-eyebrow fs-eyebrow--dark">PROFILE</p>
-                    <h2>Experiência operacional</h2>
+                    <h2>Perfil operacional</h2>
                   </div>
                 </div>
 
@@ -1237,89 +1236,83 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="fs-section fs-flow-split fs-flow-split--fleet">
-              <div className="fs-panel overflow-hidden">
-                <div className="fs-panel-heading">
-                  <div>
-                    <p className="fs-eyebrow fs-eyebrow--dark">AIRCRAFT TYPES</p>
-                    <h2>Experiência por tipo</h2>
-                  </div>
+            <section className="fs-section fs-type-section">
+              <div className="fs-panel-heading">
+                <div>
+                  <p className="fs-eyebrow fs-eyebrow--dark">AIRCRAFT TYPES</p>
+                  <h2>Experiência por tipo</h2>
                 </div>
-                <div className="fs-type-list">
-                  {typeRows.map((row) => {
-                    const maxMinutes = Math.max(1, typeRows[0]?.minutes ?? 1);
-                    const width = Math.max(
-                      6,
-                      Math.round((row.minutes / maxMinutes) * 100),
-                    );
-
-                    return (
-                      <div key={row.icao} className="fs-type-row">
-                        <div className="fs-type-code">{row.icao}</div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="truncate text-xs text-slate-600">
-                              {[...row.models].join(" / ")}
-                            </span>
-                            <strong className="font-mono text-xs text-slate-900">
-                              {hm(row.minutes)}
-                            </strong>
-                          </div>
-                          <div className="fs-type-track">
-                            <div style={{ width: width + "%" }} />
-                          </div>
-                          <p className="mt-1 text-[10px] text-slate-400">
-                            {row.flights} registos
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                <span>{typeRows.length} tipos ICAO</span>
               </div>
 
-              <div className="fs-panel overflow-hidden">
-                <div className="fs-panel-heading">
-                  <div>
-                    <p className="fs-eyebrow fs-eyebrow--dark">FLEET</p>
-                    <h2>Aeronaves voadas</h2>
-                  </div>
-                  <span>{stats.aircraftCount} matrículas</span>
+              <div className="fs-type-band">
+                {typeRows.map((row) => {
+                  const maxMinutes = Math.max(1, typeRows[0]?.minutes ?? 1);
+                  const width = Math.max(
+                    6,
+                    Math.round((row.minutes / maxMinutes) * 100),
+                  );
+
+                  return (
+                    <div key={row.icao} className="fs-type-band-item">
+                      <div className="fs-type-band-topline">
+                        <div>
+                          <strong>{row.icao}</strong>
+                          <span>{[...row.models].join(" / ")}</span>
+                        </div>
+                        <strong className="fs-type-band-time">{hm(row.minutes)}</strong>
+                      </div>
+                      <div className="fs-type-track">
+                        <div style={{ width: width + "%" }} />
+                      </div>
+                      <p>{row.flights} registos</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="fs-section fs-panel overflow-hidden">
+              <div className="fs-panel-heading">
+                <div>
+                  <p className="fs-eyebrow fs-eyebrow--dark">FLEET</p>
+                  <h2>Aeronaves voadas</h2>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="fs-table min-w-[780px] w-full">
-                    <thead>
-                      <tr>
-                        <th>Matrícula</th>
-                        <th>Modelo</th>
-                        <th>ICAO</th>
-                        <th className="text-right">Voos</th>
-                        <th className="text-right">Tempo</th>
-                        <th className="text-right">PIC</th>
-                        <th className="text-right">IFR</th>
-                        <th className="text-right">Último</th>
+                <span>{stats.aircraftCount} matrículas</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="fs-table fs-fleet-table min-w-[980px] w-full">
+                  <thead>
+                    <tr>
+                      <th>Matrícula</th>
+                      <th>Modelo</th>
+                      <th>ICAO</th>
+                      <th className="text-right">Voos</th>
+                      <th className="text-right">Tempo</th>
+                      <th className="text-right">PIC</th>
+                      <th className="text-right">IFR</th>
+                      <th className="text-right">Último</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {aircraftRows.map((row) => (
+                      <tr key={row.registration}>
+                        <td className="font-mono font-semibold">{row.registration}</td>
+                        <td>{[...row.models].join(" / ") || "—"}</td>
+                        <td className="font-mono text-xs font-semibold">
+                          {[...row.icao].join(" / ") || "—"}
+                        </td>
+                        <td className="text-right">{row.flights}</td>
+                        <td className="text-right font-mono text-xs">{hm(row.minutes)}</td>
+                        <td className="text-right font-mono text-xs">{hm(row.pic)}</td>
+                        <td className="text-right font-mono text-xs">{hm(row.ifr)}</td>
+                        <td className="text-right text-xs text-slate-500">
+                          {displayDate(row.lastDate)}
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {aircraftRows.map((row) => (
-                        <tr key={row.registration}>
-                          <td className="font-mono font-semibold">{row.registration}</td>
-                          <td>{[...row.models].join(" / ") || "—"}</td>
-                          <td className="font-mono text-xs font-semibold">
-                            {[...row.icao].join(" / ") || "—"}
-                          </td>
-                          <td className="text-right">{row.flights}</td>
-                          <td className="text-right font-mono text-xs">{hm(row.minutes)}</td>
-                          <td className="text-right font-mono text-xs">{hm(row.pic)}</td>
-                          <td className="text-right font-mono text-xs">{hm(row.ifr)}</td>
-                          <td className="text-right text-xs text-slate-500">
-                            {displayDate(row.lastDate)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </section>
 
