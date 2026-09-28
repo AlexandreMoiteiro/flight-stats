@@ -28,6 +28,7 @@ import type {
 } from "@/lib/flight-types";
 
 type ViewKey = "overview" | "logbook";
+type FlightKind = "all" | "flight" | "sim";
 
 type Totals = {
   se: number;
@@ -190,7 +191,7 @@ function logbookFstdType(flight: Flight): string {
 }
 
 function fstdLabel(flight: Flight): string {
-  const bits = [flight.fstd_type, flight.fstd_model].filter(Boolean);
+  const bits = [logbookFstdType(flight), flight.fstd_model].filter(Boolean);
   if (bits.length) return bits.join(" · ");
   return flight.type_of_aircraft || flight.registration || "FSTD";
 }
@@ -637,6 +638,8 @@ export default function Home() {
   const [year, setYear] = useState("all");
   const [aircraft, setAircraft] = useState("all");
   const [registration, setRegistration] = useState("all");
+  const [kind, setKind] = useState<FlightKind>("all");
+  const [typeCode, setTypeCode] = useState("all");
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [printAll, setPrintAll] = useState(false);
 
@@ -697,7 +700,22 @@ export default function Home() {
 
   useEffect(() => {
     setFlightPage(1);
-  }, [search, year, aircraft, registration]);
+  }, [search, year, aircraft, registration, kind, typeCode]);
+
+  const jumpToLog = () => {
+    window.requestAnimationFrame(() =>
+      document.getElementById("flight-log")?.scrollIntoView({ behavior: "smooth" }),
+    );
+  };
+
+  const clearFilters = () => {
+    setSearch("");
+    setYear("all");
+    setAircraft("all");
+    setRegistration("all");
+    setKind("all");
+    setTypeCode("all");
+  };
 
   const flights = data?.flights ?? [];
   const profileName = data
@@ -906,6 +924,9 @@ export default function Home() {
 
     return flights.filter((flight) => {
       if (year !== "all" && !flight.date?.startsWith(year)) return false;
+      if (kind === "flight" && isSimulator(flight)) return false;
+      if (kind === "sim" && !isSimulator(flight)) return false;
+      if (typeCode !== "all" && icaoType(flight.type_of_aircraft) !== typeCode) return false;
       if (aircraft !== "all" && flight.type_of_aircraft !== aircraft) return false;
       if (registration !== "all" && flight.registration !== registration) {
         return false;
@@ -934,7 +955,9 @@ export default function Home() {
 
       return text.includes(query);
     });
-  }, [flights, year, aircraft, registration, search]);
+  }, [flights, year, aircraft, registration, search, kind, typeCode]);
+
+  const hasFilters = Boolean(search || year !== "all" || aircraft !== "all" || registration !== "all" || kind !== "all" || typeCode !== "all");
 
   const flightPageCount = Math.max(1, Math.ceil(filtered.length / FLIGHT_ROWS));
   const safeFlightPage = Math.min(flightPage, flightPageCount);
@@ -1012,7 +1035,7 @@ export default function Home() {
             </div>
           </div>
 
-          <nav className="flex gap-1 pb-3">
+          <nav className="fs-main-tabs" aria-label="Vistas">
             <Tab
               active={view === "overview"}
               onClick={() => setView("overview")}
@@ -1033,13 +1056,13 @@ export default function Home() {
 
       <div className="mx-auto max-w-[1840px] px-4 py-5 sm:px-6 lg:px-8">
         {loading && !data ? (
-          <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-sm text-zinc-500">
+          <div className="fs-notice" role="status">
             A sincronizar com o FlightLogger…
           </div>
         ) : null}
 
         {error ? (
-          <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          <div className="fs-notice fs-notice--error" role="alert">
             {error.error}
           </div>
         ) : null}
@@ -1129,7 +1152,15 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="fs-section fs-flow-split fs-flow-split--activity">
+            <nav className="fs-section-nav" aria-label="Secções do Flight Stats">
+              <span>EXPLORAR / 01—04</span>
+              <a href="#activity">Atividade</a>
+              <a href="#flight-log">Voos e FSTD</a>
+              <a href="#aircraft-types">Tipos</a>
+              <a href="#fleet">Aeronaves</a>
+            </nav>
+
+            <section id="activity" className="fs-section fs-flow-split fs-flow-split--activity">
               <div className="fs-panel">
                 <div className="fs-panel-heading">
                   <div>
@@ -1236,100 +1267,20 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="fs-section fs-type-section">
-              <div className="fs-panel-heading">
-                <div>
-                  <p className="fs-eyebrow fs-eyebrow--dark">AIRCRAFT TYPES</p>
-                  <h2>Experiência por tipo</h2>
-                </div>
-                <span>{typeRows.length} tipos ICAO</span>
-              </div>
-
-              <div className="fs-type-band">
-                {typeRows.map((row) => {
-                  const maxMinutes = Math.max(1, typeRows[0]?.minutes ?? 1);
-                  const width = Math.max(
-                    6,
-                    Math.round((row.minutes / maxMinutes) * 100),
-                  );
-
-                  return (
-                    <div key={row.icao} className="fs-type-band-item">
-                      <div className="fs-type-band-topline">
-                        <div>
-                          <strong>{row.icao}</strong>
-                          <span>{[...row.models].join(" / ")}</span>
-                        </div>
-                        <strong className="fs-type-band-time">{hm(row.minutes)}</strong>
-                      </div>
-                      <div className="fs-type-track">
-                        <div style={{ width: width + "%" }} />
-                      </div>
-                      <p>{row.flights} registos</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="fs-section fs-panel overflow-hidden">
-              <div className="fs-panel-heading">
-                <div>
-                  <p className="fs-eyebrow fs-eyebrow--dark">FLEET</p>
-                  <h2>Aeronaves voadas</h2>
-                </div>
-                <span>{stats.aircraftCount} matrículas</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="fs-table fs-fleet-table min-w-[980px] w-full">
-                  <thead>
-                    <tr>
-                      <th>Matrícula</th>
-                      <th>Modelo</th>
-                      <th>ICAO</th>
-                      <th className="text-right">Voos</th>
-                      <th className="text-right">Tempo</th>
-                      <th className="text-right">PIC</th>
-                      <th className="text-right">IFR</th>
-                      <th className="text-right">Último</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {aircraftRows.map((row) => (
-                      <tr key={row.registration}>
-                        <td className="font-mono font-semibold">{row.registration}</td>
-                        <td>{[...row.models].join(" / ") || "—"}</td>
-                        <td className="font-mono text-xs font-semibold">
-                          {[...row.icao].join(" / ") || "—"}
-                        </td>
-                        <td className="text-right">{row.flights}</td>
-                        <td className="text-right font-mono text-xs">{hm(row.minutes)}</td>
-                        <td className="text-right font-mono text-xs">{hm(row.pic)}</td>
-                        <td className="text-right font-mono text-xs">{hm(row.ifr)}</td>
-                        <td className="text-right text-xs text-slate-500">
-                          {displayDate(row.lastDate)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section className="fs-section fs-panel overflow-hidden">
+            <section id="flight-log" className="fs-section fs-panel overflow-hidden">
               <div className="fs-panel-heading">
                 <div>
                   <p className="fs-eyebrow fs-eyebrow--dark">LOG</p>
                   <h2>Voos e FSTD</h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    {filtered.length} registos · seleciona um voo real para abrir a trajetória
+                    {filtered.length} de {flights.length} registos · abre um voo para ver a trajetória
                   </p>
                 </div>
                 <span>Página {safeFlightPage} / {flightPageCount}</span>
               </div>
 
               <div className="fs-filters">
-                <label className="fs-search">
+                <label className="fs-search" aria-label="Pesquisar registos">
                   <Search size={15} />
                   <input
                     value={search}
@@ -1338,14 +1289,14 @@ export default function Home() {
                   />
                 </label>
 
-                <select value={year} onChange={(event) => setYear(event.target.value)}>
+                <select aria-label="Filtrar por ano" value={year} onChange={(event) => setYear(event.target.value)}>
                   <option value="all">Todos os anos</option>
                   {options.years.map((item) => (
                     <option key={item} value={item}>{item}</option>
                   ))}
                 </select>
 
-                <select value={aircraft} onChange={(event) => setAircraft(event.target.value)}>
+                <select aria-label="Filtrar por modelo" value={aircraft} onChange={(event) => { setAircraft(event.target.value); setTypeCode("all"); }}>
                   <option value="all">Todos os modelos</option>
                   {options.aircraft.map((item) => (
                     <option key={item} value={item}>{item}</option>
@@ -1353,6 +1304,7 @@ export default function Home() {
                 </select>
 
                 <select
+                  aria-label="Filtrar por matrícula"
                   value={registration}
                   onChange={(event) => setRegistration(event.target.value)}
                 >
@@ -1361,9 +1313,20 @@ export default function Home() {
                     <option key={item} value={item}>{item}</option>
                   ))}
                 </select>
+                <div className="fs-filter-footer">
+                  <div className="fs-kind-switch" aria-label="Tipo de registo">
+                    {([["all", "Todos"], ["flight", "Voos"], ["sim", "FSTD"]] as const).map(([value, label]) => (
+                      <button type="button" key={value} className={kind === value ? "is-active" : ""} aria-pressed={kind === value} onClick={() => setKind(value)}>{label}</button>
+                    ))}
+                  </div>
+                  {hasFilters ? <button type="button" className="fs-clear-filters" onClick={clearFilters}>Limpar filtros</button> : null}
+                </div>
               </div>
 
-              <div className="overflow-x-auto">
+              {typeCode !== "all" ? <p className="fs-filter-context">TIPO ICAO / {typeCode} <button type="button" onClick={() => setTypeCode("all")}>Remover ×</button></p> : null}
+
+              {filtered.length === 0 ? <div className="fs-empty">Não há registos para estes filtros. <button type="button" onClick={clearFilters}>Mostrar todos</button></div> : null}
+              <div className="overflow-x-auto fs-flight-table-wrap">
                 <table className="fs-table fs-flight-table min-w-[1160px] w-full">
                   <thead>
                     <tr>
@@ -1458,6 +1421,14 @@ export default function Home() {
                 </table>
               </div>
 
+              <div className="fs-mobile-flights">
+                {visibleFlights.map((flight) => {
+                  const sim = isSimulator(flight);
+                  const content = <><span className="fs-mobile-flight-top"><span>{displayDate(flight.date)}</span><Badge>{role(flight)}</Badge></span><strong>{sim ? "FSTD" : `${flight.departure_airport_name || "—"} → ${flight.arrival_airport_name || "—"}`}</strong><span className="fs-mobile-flight-bottom"><span>{sim ? fstdLabel(flight) : `${icaoType(flight.type_of_aircraft)} · ${flight.registration || "—"}`}</span><b>{hm(sim ? flight.synthetic_training_minutes : flight.total_minutes)}</b></span></>;
+                  return sim ? <div className="fs-mobile-flight" key={flight.id}>{content}</div> : <button type="button" className="fs-mobile-flight" key={flight.id} onClick={() => setSelectedFlight(flight)} aria-label={`Abrir trajetória de ${displayDate(flight.date)}, ${flight.departure_airport_name || "—"} para ${flight.arrival_airport_name || "—"}`}>{content}</button>;
+                })}
+              </div>
+
               <div className="fs-pagination">
                 <button
                   type="button"
@@ -1480,6 +1451,86 @@ export default function Home() {
                 </button>
               </div>
             </section>
+            <section id="aircraft-types" className="fs-section fs-type-section">
+              <div className="fs-panel-heading">
+                <div>
+                  <p className="fs-eyebrow fs-eyebrow--dark">AIRCRAFT TYPES</p>
+                  <h2>Experiência por tipo</h2>
+                </div>
+                <span>{typeRows.length} tipos ICAO</span>
+              </div>
+
+              <div className="fs-type-band">
+                {typeRows.map((row) => {
+                  const maxMinutes = Math.max(1, typeRows[0]?.minutes ?? 1);
+                  const width = Math.max(
+                    6,
+                    Math.round((row.minutes / maxMinutes) * 100),
+                  );
+
+                  return (
+                    <button type="button" key={row.icao} className="fs-type-band-item" onClick={() => { clearFilters(); setTypeCode(row.icao); setKind("flight"); jumpToLog(); }} aria-label={`Ver voos ${row.icao}`}>
+                      <div className="fs-type-band-topline">
+                        <div>
+                          <strong>{row.icao}</strong>
+                          <span>{[...row.models].join(" / ")}</span>
+                        </div>
+                        <strong className="fs-type-band-time">{hm(row.minutes)}</strong>
+                      </div>
+                      <div className="fs-type-track">
+                        <div style={{ width: width + "%" }} />
+                      </div>
+                      <p>{row.flights} registos</p>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section id="fleet" className="fs-section fs-panel overflow-hidden">
+              <div className="fs-panel-heading">
+                <div>
+                  <p className="fs-eyebrow fs-eyebrow--dark">FLEET</p>
+                  <h2>Aeronaves voadas</h2>
+                </div>
+                <span>{stats.aircraftCount} matrículas</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="fs-table fs-fleet-table min-w-[980px] w-full">
+                  <thead>
+                    <tr>
+                      <th>Matrícula</th>
+                      <th>Modelo</th>
+                      <th>ICAO</th>
+                      <th className="text-right">Voos</th>
+                      <th className="text-right">Tempo</th>
+                      <th className="text-right">PIC</th>
+                      <th className="text-right">IFR</th>
+                      <th className="text-right">Último</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {aircraftRows.map((row) => (
+                      <tr key={row.registration}>
+                        <td className="font-mono font-semibold"><button type="button" className="fs-ledger-link" onClick={() => { clearFilters(); setRegistration(row.registration); setKind("flight"); jumpToLog(); }} aria-label={`Ver voos de ${row.registration}`}>{row.registration}</button></td>
+                        <td>{[...row.models].join(" / ") || "—"}</td>
+                        <td className="font-mono text-xs font-semibold">
+                          {[...row.icao].join(" / ") || "—"}
+                        </td>
+                        <td className="text-right">{row.flights}</td>
+                        <td className="text-right font-mono text-xs">{hm(row.minutes)}</td>
+                        <td className="text-right font-mono text-xs">{hm(row.pic)}</td>
+                        <td className="text-right font-mono text-xs">{hm(row.ifr)}</td>
+                        <td className="text-right text-xs text-slate-500">
+                          {displayDate(row.lastDate)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
           </div>
         ) : null}
 
@@ -1519,6 +1570,7 @@ export default function Home() {
               </div>
             </div>
 
+            <p className="screen-only fs-logbook-hint">Desliza a caderneta na horizontal para ver todas as colunas. O PDF mantém o formato A4 horizontal.</p>
             <div className="logbook-scroll">
               <Logbook
                 rows={logRows}
