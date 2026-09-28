@@ -979,7 +979,7 @@ export default function Home() {
                 <Plane size={19} strokeWidth={2.2} />
               </div>
               <div>
-                <h1 className="text-[17px] font-semibold tracking-[-0.03em] text-slate-950">
+                <h1 className="text-[20px] font-semibold tracking-[-0.035em] text-slate-950">
                   Flight Stats
                 </h1>
                 {data ? (
@@ -1239,7 +1239,7 @@ export default function Home() {
 
             <section className="fs-section fs-flow-split fs-flow-split--fleet">
               <div className="fs-panel overflow-hidden">
-                <div className="fs-panel-heading px-5 pt-5">
+                <div className="fs-panel-heading">
                   <div>
                     <p className="fs-eyebrow fs-eyebrow--dark">AIRCRAFT TYPES</p>
                     <h2>Experiência por tipo</h2>
@@ -1279,7 +1279,7 @@ export default function Home() {
               </div>
 
               <div className="fs-panel overflow-hidden">
-                <div className="fs-panel-heading px-5 pt-5">
+                <div className="fs-panel-heading">
                   <div>
                     <p className="fs-eyebrow fs-eyebrow--dark">FLEET</p>
                     <h2>Aeronaves voadas</h2>
@@ -1324,7 +1324,7 @@ export default function Home() {
             </section>
 
             <section className="fs-section fs-panel overflow-hidden">
-              <div className="fs-panel-heading px-5 pt-5">
+              <div className="fs-panel-heading">
                 <div>
                   <p className="fs-eyebrow fs-eyebrow--dark">LOG</p>
                   <h2>Voos e FSTD</h2>
