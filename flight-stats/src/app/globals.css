@@ -563,6 +563,141 @@ button {
   }
 }
 
+
+.track-modal {
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.track-modal-head {
+  background: rgba(23, 35, 45, 0.96);
+  color: #eef1ec;
+}
+
+.track-modal-head p {
+  color: #aeb9be;
+}
+
+.track-evidence-cell {
+  border: 1px solid #7a878d;
+  background: #f4f5f0;
+  padding: 12px;
+}
+
+.track-evidence-cell p,
+.track-record-grid span {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  color: #647078;
+}
+
+.track-evidence-cell strong {
+  display: block;
+  margin-top: 5px;
+  font-size: 17px;
+  color: #142129;
+}
+
+.track-evidence-cell > span {
+  display: block;
+  margin-top: 4px;
+  font-size: 8px;
+  color: #6d787f;
+}
+
+.track-record-panel {
+  border: 1px solid #52616a;
+  background: #eef0eb;
+}
+
+.track-record-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #52616a;
+  background: #1a2731;
+  padding: 8px 10px;
+  color: #e8ece7;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+
+.track-record-head > span {
+  color: #a8b3b8;
+  font-size: 8px;
+}
+
+.track-record-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.track-record-grid > div {
+  min-width: 0;
+  border-right: 1px solid #a9b1af;
+  border-bottom: 1px solid #a9b1af;
+  padding: 11px;
+}
+
+.track-record-grid > div:nth-child(3n) {
+  border-right: 0;
+}
+
+.track-record-grid strong {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: #1b2931;
+}
+
+.track-record-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 9px 10px;
+  font-size: 8px;
+  line-height: 1.5;
+  color: #606c73;
+}
+
+.track-source-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #69767e;
+  padding: 6px 8px;
+  color: #263640;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+}
+
+.track-source-link:hover {
+  background: #dce1dc;
+}
+
+@media (max-width: 760px) {
+  .track-record-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .track-record-grid > div {
+    border-right: 0;
+  }
+
+  .track-record-head,
+  .track-record-foot {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .logbook-scroll {
   width: 100%;
   overflow-x: hidden;
