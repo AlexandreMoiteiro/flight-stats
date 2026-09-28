@@ -344,7 +344,7 @@ function Logbook({
   while (padded.length < LOGBOOK_ROWS) padded.push(null);
 
   return (
-    <div className="logbook-paper print-logbook">
+    <div className="logbook-paper">
       <div className="mb-3 flex items-end justify-between gap-4">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-500">
