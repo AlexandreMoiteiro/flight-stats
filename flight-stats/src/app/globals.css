@@ -107,11 +107,11 @@ button {
 }
 
 .logbook-entry-row {
-  height: clamp(16px, 1.8vw, 27px);
+  height: clamp(15px, min(1.8vw, 2.25vh), 27px);
 }
 
 .logbook-total-row {
-  height: clamp(15px, 1.65vw, 25px);
+  height: clamp(14px, min(1.65vw, 2.05vh), 25px);
   font-weight: 700;
   background: #fafafa;
 }
