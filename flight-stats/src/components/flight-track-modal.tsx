@@ -70,6 +70,14 @@ function dateLabel(value: string | null | undefined): string {
   }).format(date);
 }
 
+function sourceLabel(value: string): string {
+  return value
+    .replace("flightlogger-airnav-kml", "AirNav Radar / FlightLogger")
+    .replace("adsb.lol-history", "adsb.lol historical")
+    .replace("airplanes.live-history", "airplanes.live historical")
+    .replace("historical-adsb", "Historical ADS-B");
+}
+
 function clampLat(lat: number): number {
   return Math.max(-85.05112878, Math.min(85.05112878, lat));
 }
@@ -224,24 +232,36 @@ function MapView({ points }: { points: TrackPoint[] }) {
   if (!geometry) return null;
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100">
+    <div className="track-map-frame">
       <svg
         viewBox={"0 0 " + MAP_WIDTH + " " + MAP_HEIGHT}
         className="block h-auto w-full"
         role="img"
         aria-label="Trajetória ADS-B do voo"
       >
-        {geometry.tiles.map((tile) => (
-          <image
-            key={tile.key}
-            href={tile.href}
-            x={tile.x}
-            y={tile.y}
-            width={TILE}
-            height={TILE}
-            preserveAspectRatio="none"
-          />
-        ))}
+        <defs>
+          <filter id="map-bw" x="-10%" y="-10%" width="120%" height="120%">
+            <feColorMatrix type="saturate" values="0" />
+            <feComponentTransfer>
+              <feFuncR type="linear" slope="1.12" intercept="-0.04" />
+              <feFuncG type="linear" slope="1.12" intercept="-0.04" />
+              <feFuncB type="linear" slope="1.12" intercept="-0.04" />
+            </feComponentTransfer>
+          </filter>
+        </defs>
+        <g filter="url(#map-bw)">
+          {geometry.tiles.map((tile) => (
+            <image
+              key={tile.key}
+              href={tile.href}
+              x={tile.x}
+              y={tile.y}
+              width={TILE}
+              height={TILE}
+              preserveAspectRatio="none"
+            />
+          ))}
+        </g>
 
         {geometry.segments.map((segment, index) => (
           <polyline
@@ -291,7 +311,7 @@ function MapView({ points }: { points: TrackPoint[] }) {
           strokeWidth="4"
         />
       </svg>
-      <div className="flex items-center justify-between gap-3 border-t border-zinc-200 bg-white px-3 py-2 text-[10px] text-zinc-500">
+      <div className="track-map-caption">
         <span>Trajetória ADS-B · linha interrompida quando há perda de cobertura</span>
         <span>© OpenStreetMap contributors · fontes ADS-B identificadas no detalhe</span>
       </div>
@@ -482,6 +502,15 @@ export function FlightTrackModal({ flight, onClose }: Props) {
       ((trackStats?.coverage ?? 0) >= 70 && points.length >= 10) ||
       ((trackStats?.coverage ?? 0) >= 35 && points.length >= 30));
 
+  const evidenceCallsign =
+    trackRef?.callsign || trackStats?.callsigns[0] || "—";
+  const evidenceModeS = trackStats?.hexes[0] || "—";
+  const evidenceSource =
+    trackRef?.provider ||
+    trackStats?.sources.map(sourceLabel).join(" / ") ||
+    "—";
+  const evidenceTrackId = trackRef?.provider_record_id || flight.id;
+
 
   return (
     <div
@@ -490,8 +519,8 @@ export function FlightTrackModal({ flight, onClose }: Props) {
         if (event.currentTarget === event.target) onClose();
       }}
     >
-      <div className="max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-3xl border border-zinc-200 bg-stone-50 shadow-2xl">
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-zinc-200 bg-stone-50/95 px-5 py-4 backdrop-blur sm:px-6">
+      <div className="track-modal max-h-[94vh] w-full max-w-6xl overflow-y-auto">
+        <div className="track-modal-head sticky top-0 z-10 flex items-start justify-between gap-4 px-5 py-4 backdrop-blur sm:px-6">
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <Plane size={18} />
@@ -502,6 +531,11 @@ export function FlightTrackModal({ flight, onClose }: Props) {
               <span className="rounded-full bg-zinc-950 px-2 py-1 font-mono text-[10px] font-bold text-white">
                 {flight.registration || "—"}
               </span>
+              {evidenceCallsign !== "—" ? (
+                <span className="border border-zinc-500 bg-white px-2 py-1 font-mono text-[10px] font-bold text-zinc-950">
+                  {evidenceCallsign}
+                </span>
+              ) : null}
             </div>
             <p className="mt-1 text-xs text-zinc-500">
               {dateLabel(flight.date)} · {timeLabel(flight.off_block)}–
@@ -533,13 +567,32 @@ export function FlightTrackModal({ flight, onClose }: Props) {
             <>
               <MapView points={points} />
 
+              <div className="track-evidence-strip">
+                <div>
+                  <span>CALLSIGN</span>
+                  <strong>{evidenceCallsign}</strong>
+                </div>
+                <div>
+                  <span>MODE-S / ICAO24</span>
+                  <strong>{evidenceModeS}</strong>
+                </div>
+                <div>
+                  <span>DATA SOURCE</span>
+                  <strong>{evidenceSource}</strong>
+                </div>
+                <div>
+                  <span>TRACK / FLIGHT ID</span>
+                  <strong>{evidenceTrackId}</strong>
+                </div>
+              </div>
+
               {trackRef ? (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3">
+                <div className="track-provider-row">
                   <div>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-sky-700">
+                    <p className="font-mono text-[8px] font-bold uppercase tracking-[0.12em] text-zinc-500">
                       Track associado ao voo
                     </p>
-                    <p className="mt-1 text-xs text-sky-950">
+                    <p className="mt-1 font-mono text-[10px] font-semibold text-zinc-950">
                       {trackRef.provider}
                       {trackRef.callsign ? " · " + trackRef.callsign : ""}
                       {trackRef.provider_record_id
@@ -552,7 +605,7 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                       href={trackRef.view_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1.5 rounded-xl border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-sky-800 transition hover:border-sky-400"
+                      className=""
                     >
                       Abrir fonte
                       <ExternalLink size={13} />
@@ -561,17 +614,17 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                 </div>
               ) : null}
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+              <div className="track-stat-grid">
+                <div className="track-stat-cell">
+                  <p className="track-stat-label">
                     Distância ADS-B
                   </p>
                   <p className="mt-2 text-xl font-semibold">
                     {trackStats?.distance.toFixed(1)} NM
                   </p>
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                <div className="track-stat-cell">
+                  <p className="track-stat-label">
                     Altitude máx.
                   </p>
                   <p className="mt-2 text-xl font-semibold">
@@ -582,8 +635,8 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                         ) + " ft"}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                <div className="track-stat-cell">
+                  <p className="track-stat-label">
                     GS máx.
                   </p>
                   <p className="mt-2 text-xl font-semibold">
@@ -592,8 +645,8 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                       : Math.round(trackStats?.maxSpeed ?? 0) + " kt"}
                   </p>
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                <div className="track-stat-cell">
+                  <p className="track-stat-label">
                     Pontos
                   </p>
                   <p className="mt-2 text-xl font-semibold">{points.length}</p>
@@ -646,7 +699,7 @@ export function FlightTrackModal({ flight, onClose }: Props) {
           )}
 
           <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="track-stat-cell">
               <div className="flex items-center gap-2 text-zinc-500">
                 <Navigation size={14} />
                 <p className="text-[10px] font-bold uppercase tracking-wider">
@@ -658,7 +711,7 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                 {flight.arrival_airport_name || "—"}
               </p>
             </div>
-            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="track-stat-cell">
               <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
                 PIC / Instrutor
               </p>
@@ -668,7 +721,7 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                   "SELF"}
               </p>
             </div>
-            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="track-stat-cell">
               <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
                 ADS-B
               </p>
