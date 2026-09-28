@@ -509,6 +509,53 @@ function Logbook({
   );
 }
 
+function SynopticMotif() {
+  return (
+    <svg
+      className="fs-synoptic-motif"
+      viewBox="0 0 760 310"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <g className="fs-isobars">
+        <path d="M128 275 C118 210 142 140 205 103 C275 62 369 65 433 111 C493 154 511 220 488 286" />
+        <path d="M166 278 C151 224 170 163 221 132 C276 98 352 99 403 135 C451 168 468 222 451 281" />
+        <path d="M204 279 C193 238 207 190 245 164 C285 137 340 136 377 163 C414 189 428 230 416 280" />
+        <path d="M246 282 C238 253 250 218 276 198 C305 176 343 176 370 197 C396 217 406 249 398 280" />
+        <path d="M530 38 C576 61 610 97 625 141 C643 193 633 242 604 281" />
+        <path d="M559 31 C609 58 647 98 666 148 C684 199 678 246 653 289" />
+      </g>
+
+      <path
+        className="fs-front-blue"
+        d="M36 230 C115 206 155 170 205 147 C265 119 334 116 402 129"
+      />
+      <g className="fs-front-triangles">
+        <path d="M114 203 l18 8 -15 13 z" />
+        <path d="M184 163 l18 8 -15 13 z" />
+        <path d="M261 132 l18 8 -15 13 z" />
+        <path d="M338 122 l18 8 -15 13 z" />
+      </g>
+
+      <path
+        className="fs-front-red"
+        d="M401 129 C474 143 526 171 581 214 C624 247 659 268 718 287"
+      />
+      <g className="fs-front-semicircles">
+        <path d="M455 145 a13 13 0 0 1 23 10" />
+        <path d="M524 178 a13 13 0 0 1 23 10" />
+        <path d="M586 222 a13 13 0 0 1 23 10" />
+        <path d="M649 262 a13 13 0 0 1 23 10" />
+      </g>
+
+      <ellipse className="fs-yellow-zone" cx="322" cy="203" rx="104" ry="72" />
+      <text className="fs-chart-label fs-chart-label--blue" x="95" y="85">FST</text>
+      <text className="fs-chart-label fs-chart-label--red" x="526" y="110">LOG</text>
+      <text className="fs-chart-small" x="274" y="205">EXPERIENCE</text>
+    </svg>
+  );
+}
+
 function Card({
   label,
   value,
@@ -981,6 +1028,7 @@ export default function Home() {
         {data && view === "overview" ? (
           <div className="screen-only space-y-4">
             <section className="fs-hero">
+              <SynopticMotif />
               <div className="fs-ofp-titlebar">
                 <div>
                   <span>DOCUMENT</span>
