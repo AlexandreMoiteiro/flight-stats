@@ -513,48 +513,71 @@ function SynopticMotif() {
   return (
     <svg
       className="fs-synoptic-motif"
-      viewBox="0 0 760 310"
+      viewBox="0 0 900 420"
       aria-hidden="true"
       focusable="false"
     >
-      <g className="fs-isobars">
-        <path d="M128 275 C118 210 142 140 205 103 C275 62 369 65 433 111 C493 154 511 220 488 286" />
-        <path d="M166 278 C151 224 170 163 221 132 C276 98 352 99 403 135 C451 168 468 222 451 281" />
-        <path d="M204 279 C193 238 207 190 245 164 C285 137 340 136 377 163 C414 189 428 230 416 280" />
-        <path d="M246 282 C238 253 250 218 276 198 C305 176 343 176 370 197 C396 217 406 249 398 280" />
-        <path d="M530 38 C576 61 610 97 625 141 C643 193 633 242 604 281" />
-        <path d="M559 31 C609 58 647 98 666 148 C684 199 678 246 653 289" />
+      <defs>
+        <linearGradient id="fs-heat-spectrum" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor="#f3d43b" />
+          <stop offset="17%" stopColor="#79d85d" />
+          <stop offset="36%" stopColor="#39c6b8" />
+          <stop offset="54%" stopColor="#42a9e7" />
+          <stop offset="72%" stopColor="#6e75df" />
+          <stop offset="88%" stopColor="#8d53c7" />
+          <stop offset="100%" stopColor="#4ec88d" />
+        </linearGradient>
+        <radialGradient id="fs-scan-field" cx="52%" cy="42%" r="62%">
+          <stop offset="0%" stopColor="#78e075" stopOpacity="0.9" />
+          <stop offset="35%" stopColor="#4bbbd7" stopOpacity="0.78" />
+          <stop offset="68%" stopColor="#736cd5" stopOpacity="0.7" />
+          <stop offset="100%" stopColor="#2c2e32" stopOpacity="0.08" />
+        </radialGradient>
+        <filter id="fs-soft-grain">
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.9"
+            numOctaves="2"
+            seed="7"
+            stitchTiles="stitch"
+          />
+          <feColorMatrix type="saturate" values="0" />
+          <feComponentTransfer>
+            <feFuncA type="table" tableValues="0 0.12" />
+          </feComponentTransfer>
+        </filter>
+      </defs>
+
+      <g className="fs-topography-lines">
+        <path d="M42 340 C120 292 155 210 233 171 C322 126 427 145 481 91 C528 44 631 33 713 84 C780 126 810 202 859 239" />
+        <path d="M27 368 C116 318 156 241 244 198 C327 158 425 176 497 119 C563 67 650 64 722 108 C789 150 816 216 873 255" />
+        <path d="M77 392 C145 349 188 281 264 242 C334 206 424 214 507 155 C574 107 654 102 716 139 C772 173 811 229 878 273" />
+        <path d="M142 411 C194 372 236 322 295 286 C362 246 437 252 520 196 C585 151 645 145 699 175 C749 203 789 249 851 294" />
+        <path d="M229 418 C265 388 306 350 353 319 C408 283 463 285 532 239 C587 202 637 196 680 219 C721 242 754 278 807 320" />
+
+        <path d="M154 88 C202 40 280 18 345 39 C405 59 434 104 476 126" />
+        <path d="M184 111 C225 72 284 55 337 70 C385 84 417 117 454 139" />
+        <path d="M220 132 C254 104 297 95 335 104 C369 112 398 135 431 155" />
+
+        <path d="M660 338 C704 304 746 294 783 310 C819 326 841 361 872 386" />
+        <path d="M690 362 C727 337 758 332 789 345 C817 357 839 381 862 399" />
       </g>
 
-      <path
-        className="fs-front-blue"
-        d="M36 230 C115 206 155 170 205 147 C265 119 334 116 402 129"
-      />
-      <g className="fs-front-triangles">
-        <path d="M114 203 l18 8 -15 13 z" />
-        <path d="M184 163 l18 8 -15 13 z" />
-        <path d="M261 132 l18 8 -15 13 z" />
-        <path d="M338 122 l18 8 -15 13 z" />
+      <g className="fs-tissue-bands">
+        <path d="M76 75 C117 112 133 157 123 208 C115 248 87 285 83 325" />
+        <path d="M105 61 C151 101 169 153 159 213 C151 260 121 302 118 346" />
+        <path d="M135 55 C183 93 205 149 197 215 C191 269 161 312 159 361" />
       </g>
 
-      <path
-        className="fs-front-red"
-        d="M401 129 C474 143 526 171 581 214 C624 247 659 268 718 287"
-      />
-      <g className="fs-front-semicircles">
-        <path d="M455 145 a13 13 0 0 1 23 10" />
-        <path d="M524 178 a13 13 0 0 1 23 10" />
-        <path d="M586 222 a13 13 0 0 1 23 10" />
-        <path d="M649 262 a13 13 0 0 1 23 10" />
-      </g>
-
-      <ellipse className="fs-yellow-zone" cx="322" cy="203" rx="104" ry="72" />
-      <text className="fs-chart-label fs-chart-label--blue" x="95" y="85">FST</text>
-      <text className="fs-chart-label fs-chart-label--red" x="526" y="110">LOG</text>
-      <text className="fs-chart-small" x="274" y="205">EXPERIENCE</text>
+      <rect className="fs-heat-window fs-heat-window--long" x="438" y="238" width="276" height="44" rx="2" />
+      <rect className="fs-heat-window fs-heat-window--small" x="550" y="98" width="54" height="60" rx="2" />
+      <rect className="fs-heat-window-border" x="438" y="238" width="276" height="44" rx="2" />
+      <rect className="fs-heat-window-border" x="550" y="98" width="54" height="60" rx="2" />
+      <rect x="0" y="0" width="900" height="420" filter="url(#fs-soft-grain)" opacity="0.32" />
     </svg>
   );
 }
+
 
 function Card({
   label,
@@ -1026,7 +1049,7 @@ export default function Home() {
         ) : null}
 
         {data && view === "overview" ? (
-          <div className="screen-only space-y-4">
+          <div className="screen-only fs-flow">
             <section className="fs-hero">
               <SynopticMotif />
               <div className="fs-ofp-titlebar">
@@ -1107,7 +1130,11 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+            <div className="fs-heat-separator" aria-hidden="true">
+              <span />
+            </div>
+
+            <section className="fs-flow-split fs-flow-split--activity">
               <div className="fs-panel">
                 <div className="fs-panel-heading">
                   <div>
@@ -1214,7 +1241,7 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="grid gap-4 xl:grid-cols-[0.7fr_1.3fr]">
+            <section className="fs-flow-split fs-flow-split--fleet">
               <div className="fs-panel overflow-hidden">
                 <div className="fs-panel-heading px-5 pt-5">
                   <div>
