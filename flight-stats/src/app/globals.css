@@ -858,6 +858,20 @@ button {
   color: #71717a;
 }
 
+.track-stat-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: #71717a;
+}
+
+.track-stat-cell > p:not(.track-stat-label) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #18181b;
+}
+
 @media (max-width: 1100px) {
   .fs-hero-main {
     grid-template-columns: 1fr;
