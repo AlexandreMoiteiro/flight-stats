@@ -972,14 +972,14 @@ export default function Home() {
   return (
     <main className="fs-app min-h-screen text-slate-950">
       <header className="screen-only fs-header">
-        <div className="mx-auto max-w-[1540px] px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-[1840px] px-4 sm:px-6 lg:px-8">
           <div className="flex min-h-[72px] flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="fs-logo-mark">
                 <Plane size={19} strokeWidth={2.2} />
               </div>
               <div>
-                <h1 className="text-[17px] font-semibold tracking-[-0.03em] text-slate-950">
+                <h1 className="text-[20px] font-semibold tracking-[-0.035em] text-slate-950">
                   Flight Stats
                 </h1>
                 {data ? (
@@ -1035,7 +1035,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1540px] px-4 py-5 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1840px] px-4 py-5 sm:px-6 lg:px-8">
         {loading && !data ? (
           <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-sm text-zinc-500">
             A sincronizar com o FlightLogger…
@@ -1054,15 +1054,15 @@ export default function Home() {
               <SynopticMotif />
               <div className="fs-ofp-titlebar">
                 <div>
-                  <span>DOCUMENT</span>
-                  <strong>FLIGHT STATS / EXPERIENCE OFP</strong>
+                  <span>FLIGHT EXPERIENCE</span>
+                  <strong>PERSONAL OPERATIONS RECORD</strong>
                 </div>
                 <div>
                   <span>PILOT</span>
                   <strong>{profileName || "—"}</strong>
                 </div>
                 <div>
-                  <span>UPDATED UTC</span>
+                  <span>LAST SYNC / UTC</span>
                   <strong>
                     {displayDate(data.syncedAt)} {utcTime(data.syncedAt)}Z
                   </strong>
@@ -1130,11 +1130,7 @@ export default function Home() {
               </div>
             </section>
 
-            <div className="fs-heat-separator" aria-hidden="true">
-              <span />
-            </div>
-
-            <section className="fs-flow-split fs-flow-split--activity">
+            <section className="fs-section fs-flow-split fs-flow-split--activity">
               <div className="fs-panel">
                 <div className="fs-panel-heading">
                   <div>
@@ -1241,9 +1237,9 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="fs-flow-split fs-flow-split--fleet">
+            <section className="fs-section fs-flow-split fs-flow-split--fleet">
               <div className="fs-panel overflow-hidden">
-                <div className="fs-panel-heading px-5 pt-5">
+                <div className="fs-panel-heading">
                   <div>
                     <p className="fs-eyebrow fs-eyebrow--dark">AIRCRAFT TYPES</p>
                     <h2>Experiência por tipo</h2>
@@ -1283,7 +1279,7 @@ export default function Home() {
               </div>
 
               <div className="fs-panel overflow-hidden">
-                <div className="fs-panel-heading px-5 pt-5">
+                <div className="fs-panel-heading">
                   <div>
                     <p className="fs-eyebrow fs-eyebrow--dark">FLEET</p>
                     <h2>Aeronaves voadas</h2>
@@ -1327,13 +1323,13 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="fs-panel overflow-hidden">
-              <div className="fs-panel-heading px-5 pt-5">
+            <section className="fs-section fs-panel overflow-hidden">
+              <div className="fs-panel-heading">
                 <div>
                   <p className="fs-eyebrow fs-eyebrow--dark">LOG</p>
                   <h2>Voos e FSTD</h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    {filtered.length} registos · clica num voo real para abrir o track
+                    {filtered.length} registos · seleciona um voo real para abrir a trajetória
                   </p>
                 </div>
                 <span>Página {safeFlightPage} / {flightPageCount}</span>
