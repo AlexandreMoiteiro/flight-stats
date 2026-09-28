@@ -637,9 +637,10 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                 Sem trajetória ADS-B disponível para este voo
               </p>
               <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-zinc-500">
-                O voo foi procurado também nas fontes históricas disponíveis.
-                Não existem pontos ADS-B utilizáveis para a janela deste voo,
-                ou a cobertura nessa zona/altura foi insuficiente.
+                Não encontrei um track utilizável nos arquivos ADS-B abertos
+                pesquisados automaticamente. Isto não prova que o voo não tenha
+                um track guardado no FlightLogger/AirNav: esses anexos não são
+                expostos pela API pública de consulta do FlightLogger.
               </p>
             </div>
           )}
