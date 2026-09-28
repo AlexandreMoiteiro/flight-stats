@@ -165,9 +165,28 @@ function logbookPicName(flight: Flight): string {
 
 function logbookRemarks(flight: Flight): string {
   const remarks = String(flight.remarks_and_endorsements ?? "").trim();
+
+  if (isSimulator(flight)) {
+    const hasMcc = String(flight.fstd_type ?? "")
+      .toUpperCase()
+      .includes("MCC");
+    if (!hasMcc) return remarks;
+    if (!remarks) return "MCC";
+    return /\bMCC\b/i.test(remarks) ? remarks : remarks + " · MCC";
+  }
+
   if (flight.flight_type !== "SPIC") return remarks;
   if (!remarks) return "*";
   return remarks.includes("*") ? remarks : remarks + " *";
+}
+
+function logbookFstdType(flight: Flight): string {
+  const value = String(flight.fstd_type ?? "").toUpperCase().trim();
+
+  if (/FNPT\s*II/.test(value)) return "FNPT II";
+  if (/FNPT\s*I/.test(value)) return "FNPT I";
+
+  return value.replace(/\s*\/\s*MCC\b/g, "").trim() || "FSTD";
 }
 
 function fstdLabel(flight: Flight): string {
@@ -416,7 +435,7 @@ function Logbook({
                       <td key={cell}></td>
                     ))}
                     <td>{logDate(flight.date)}</td>
-                    <td>{fstdLabel(flight)}</td>
+                    <td>{logbookFstdType(flight)}</td>
                     <td>
                       <LogDuration
                         value={safe(flight.synthetic_training_minutes)}
