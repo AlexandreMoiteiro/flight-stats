@@ -950,7 +950,7 @@ export default function Home() {
               onClick={() => setView("overview")}
               icon={<Gauge size={15} />}
             >
-              Resumo
+              Flight Stats
             </Tab>
             <Tab
               active={view === "logbook"}
