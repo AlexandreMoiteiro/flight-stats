@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, MapPinned, Navigation, Plane, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, MapPinned, Navigation, Plane, X } from "lucide-react";
 
 import type { Flight } from "@/lib/flight-types";
 import { supabase } from "@/lib/supabase";
@@ -17,6 +17,19 @@ type TrackPoint = {
   callsign: string | null;
   icao_hex: string | null;
   source: string | null;
+};
+
+type TrackRef = {
+  flight_id: string;
+  registration: string;
+  provider: string;
+  provider_record_id: string | null;
+  callsign: string | null;
+  view_url: string | null;
+  source_kind: string;
+  track_start: string | null;
+  track_end: string | null;
+  point_count: number;
 };
 
 type Props = {
@@ -280,7 +293,7 @@ function MapView({ points }: { points: TrackPoint[] }) {
       </svg>
       <div className="flex items-center justify-between gap-3 border-t border-zinc-200 bg-white px-3 py-2 text-[10px] text-zinc-500">
         <span>Trajetória ADS-B · linha interrompida quando há perda de cobertura</span>
-        <span>© OpenStreetMap contributors · ADS-B: adsb.lol / airplanes.live</span>
+        <span>© OpenStreetMap contributors · fontes ADS-B identificadas no detalhe</span>
       </div>
     </div>
   );
@@ -290,6 +303,7 @@ export function FlightTrackModal({ flight, onClose }: Props) {
   const [points, setPoints] = useState<TrackPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [trackRef, setTrackRef] = useState<TrackRef | null>(null);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -312,21 +326,53 @@ export function FlightTrackModal({ flight, onClose }: Props) {
         return;
       }
 
-      const start = new Date(flight.off_block);
-      const end = new Date(flight.on_block);
-      start.setMinutes(start.getMinutes() - 12);
-      end.setMinutes(end.getMinutes() + 12);
+      const { data: refData } = await supabase
+        .from("flight_stats_track_refs")
+        .select(
+          "flight_id,registration,provider,provider_record_id,callsign,view_url,source_kind,track_start,track_end,point_count",
+        )
+        .eq("flight_id", flight.id)
+        .maybeSingle();
 
-      const { data, error } = await supabase
+      if (!active) return;
+      setTrackRef((refData as TrackRef | null) ?? null);
+
+      const direct = await supabase
         .from("flight_stats_adsb_points")
         .select(
           "observed_at,lat,lon,altitude_ft,ground_speed_kt,track_deg,vertical_rate_fpm,callsign,icao_hex,source",
         )
-        .eq("registration", flight.registration.toUpperCase())
-        .gte("observed_at", start.toISOString())
-        .lte("observed_at", end.toISOString())
+        .eq("flight_id", flight.id)
         .order("observed_at", { ascending: true })
-        .limit(2000);
+        .limit(4000);
+
+      let data = direct.data;
+      let error = direct.error;
+
+      if (!error && (!data || data.length === 0)) {
+        const start = new Date(flight.off_block);
+        const end = new Date(flight.on_block);
+
+        // Historical providers often detect takeoff/landing outside the
+        // FlightLogger booking/block timestamps, so use a wider discovery
+        // window only as fallback. Flight-specific points always win.
+        start.setMinutes(start.getMinutes() - 45);
+        end.setMinutes(end.getMinutes() + 45);
+
+        const fallback = await supabase
+          .from("flight_stats_adsb_points")
+          .select(
+            "observed_at,lat,lon,altitude_ft,ground_speed_kt,track_deg,vertical_rate_fpm,callsign,icao_hex,source",
+          )
+          .eq("registration", flight.registration.toUpperCase())
+          .gte("observed_at", start.toISOString())
+          .lte("observed_at", end.toISOString())
+          .order("observed_at", { ascending: true })
+          .limit(4000);
+
+        data = fallback.data;
+        error = fallback.error;
+      }
 
       if (!active) return;
 
@@ -427,9 +473,13 @@ export function FlightTrackModal({ flight, onClose }: Props) {
     };
   }, [points, flight]);
 
+  const isAttachedProviderTrack =
+    trackRef?.source_kind === "flightlogger-attached-kml";
+
   const hasUsableTrack =
-    points.length >= 10 &&
-    ((trackStats?.coverage ?? 0) >= 70 ||
+    points.length >= 2 &&
+    (isAttachedProviderTrack ||
+      ((trackStats?.coverage ?? 0) >= 70 && points.length >= 10) ||
       ((trackStats?.coverage ?? 0) >= 35 && points.length >= 30));
 
 
@@ -479,9 +529,37 @@ export function FlightTrackModal({ flight, onClose }: Props) {
             <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
               {loadError}
             </div>
-          ) : points.length >= 2 ? (
+          ) : hasUsableTrack ? (
             <>
               <MapView points={points} />
+
+              {trackRef ? (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-sky-700">
+                      Track associado ao voo
+                    </p>
+                    <p className="mt-1 text-xs text-sky-950">
+                      {trackRef.provider}
+                      {trackRef.callsign ? " · " + trackRef.callsign : ""}
+                      {trackRef.provider_record_id
+                        ? " · ID " + trackRef.provider_record_id
+                        : ""}
+                    </p>
+                  </div>
+                  {trackRef.view_url ? (
+                    <a
+                      href={trackRef.view_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-sky-300 bg-white px-3 py-2 text-xs font-semibold text-sky-800 transition hover:border-sky-400"
+                    >
+                      Abrir fonte
+                      <ExternalLink size={13} />
+                    </a>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-2xl border border-zinc-200 bg-white p-4">
@@ -535,8 +613,9 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                 Foram encontrados {points.length} pontos entre{" "}
                 {timeLabel(trackStats?.first)} e {timeLabel(trackStats?.last)} UTC,
                 cobrindo aproximadamente {trackStats?.coverage ?? 0}% do block.
-                Para não representar um pequeno fragmento como se fosse o voo
-                completo, o mapa fica oculto.
+                Como estes pontos não estão associados diretamente a um track
+                guardado para este voo, o mapa fica oculto em vez de apresentar
+                um fragmento como se fosse a trajetória completa.
               </p>
               <div className="mx-auto mt-4 flex max-w-xl flex-wrap justify-center gap-2 text-[11px] text-amber-900">
                 {trackStats?.callsigns.length ? (
@@ -558,9 +637,10 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                 Sem trajetória ADS-B disponível para este voo
               </p>
               <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-zinc-500">
-                O voo foi procurado também nas fontes históricas disponíveis.
-                Não existem pontos ADS-B utilizáveis para a janela deste voo,
-                ou a cobertura nessa zona/altura foi insuficiente.
+                Não encontrei um track utilizável nos arquivos ADS-B abertos
+                pesquisados automaticamente. Isto não prova que o voo não tenha
+                um track guardado no FlightLogger/AirNav: esses anexos não são
+                expostos pela API pública de consulta do FlightLogger.
               </p>
             </div>
           )}
@@ -593,11 +673,13 @@ export function FlightTrackModal({ flight, onClose }: Props) {
                 ADS-B
               </p>
               <p className="mt-2 text-sm font-semibold">
-                {hasUsableTrack
-                  ? "Track com cobertura suficiente"
-                  : points.length
-                    ? "Apenas fragmento parcial"
-                    : "Sem track"}
+                {isAttachedProviderTrack
+                  ? "Track guardado no FlightLogger"
+                  : hasUsableTrack
+                    ? "Track com cobertura suficiente"
+                    : points.length
+                      ? "Apenas fragmento parcial"
+                      : "Sem track"}
               </p>
               <p className="mt-1 text-[11px] text-zinc-500">
                 {trackStats?.callsigns.length

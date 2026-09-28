@@ -165,9 +165,28 @@ function logbookPicName(flight: Flight): string {
 
 function logbookRemarks(flight: Flight): string {
   const remarks = String(flight.remarks_and_endorsements ?? "").trim();
+
+  if (isSimulator(flight)) {
+    const hasMcc = String(flight.fstd_type ?? "")
+      .toUpperCase()
+      .includes("MCC");
+    if (!hasMcc) return remarks;
+    if (!remarks) return "MCC";
+    return /\bMCC\b/i.test(remarks) ? remarks : remarks + " · MCC";
+  }
+
   if (flight.flight_type !== "SPIC") return remarks;
   if (!remarks) return "*";
   return remarks.includes("*") ? remarks : remarks + " *";
+}
+
+function logbookFstdType(flight: Flight): string {
+  const value = String(flight.fstd_type ?? "").toUpperCase().trim();
+
+  if (/FNPT\s*II/.test(value)) return "FNPT II";
+  if (/FNPT\s*I/.test(value)) return "FNPT I";
+
+  return value.replace(/\s*\/\s*MCC\b/g, "").trim() || "FSTD";
 }
 
 function fstdLabel(flight: Flight): string {
@@ -416,7 +435,7 @@ function Logbook({
                       <td key={cell}></td>
                     ))}
                     <td>{logDate(flight.date)}</td>
-                    <td>{fstdLabel(flight)}</td>
+                    <td>{logbookFstdType(flight)}</td>
                     <td>
                       <LogDuration
                         value={safe(flight.synthetic_training_minutes)}
@@ -502,24 +521,10 @@ function Card({
   large?: boolean;
 }) {
   return (
-    <div
-      className={
-        "rounded-2xl border border-zinc-200 bg-white " +
-        (large ? "px-6 py-5" : "px-5 py-4")
-      }
-    >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-zinc-400">
-        {label}
-      </p>
-      <p
-        className={
-          "mt-2 font-semibold tracking-[-0.04em] text-zinc-950 " +
-          (large ? "text-4xl" : "text-2xl")
-        }
-      >
-        {value}
-      </p>
-      {detail ? <p className="mt-1.5 text-xs text-zinc-500">{detail}</p> : null}
+    <div className={"fs-stat-card " + (large ? "fs-stat-card--large" : "")}>
+      <p className="fs-stat-label">{label}</p>
+      <p className="fs-stat-value">{value}</p>
+      {detail ? <p className="fs-stat-detail">{detail}</p> : null}
     </div>
   );
 }
@@ -539,12 +544,7 @@ function Tab({
     <button
       type="button"
       onClick={onClick}
-      className={
-        "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition " +
-        (active
-          ? "bg-zinc-950 text-white"
-          : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950")
-      }
+      className={"fs-tab " + (active ? "fs-tab--active" : "")}
     >
       {icon}
       {children}
@@ -900,23 +900,25 @@ export default function Home() {
   const latestDays = daysSince(latestReal?.date);
 
   return (
-    <main className="min-h-screen bg-stone-100 text-zinc-950">
-      <header className="screen-only sticky top-0 z-30 border-b border-zinc-200/90 bg-stone-100/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1500px] flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <Plane size={19} strokeWidth={2.1} />
-                <h1 className="text-lg font-semibold tracking-tight">
+    <main className="fs-app min-h-screen text-slate-950">
+      <header className="screen-only fs-header">
+        <div className="mx-auto max-w-[1540px] px-4 sm:px-6 lg:px-8">
+          <div className="flex min-h-[72px] flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="fs-logo-mark">
+                <Plane size={19} strokeWidth={2.2} />
+              </div>
+              <div>
+                <h1 className="text-[17px] font-semibold tracking-[-0.03em] text-slate-950">
                   Flight Stats
                 </h1>
+                {data ? (
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    {profileName}
+                    {data.profile.callSign ? " · " + data.profile.callSign : ""}
+                  </p>
+                ) : null}
               </div>
-              {data ? (
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  {profileName}
-                  {data.profile.callSign ? " · " + data.profile.callSign : ""}
-                </p>
-              ) : null}
             </div>
 
             <div className="flex items-center gap-2">
@@ -924,19 +926,19 @@ export default function Home() {
                 type="button"
                 onClick={() => setPrintAll(true)}
                 disabled={!flights.length}
-                className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition hover:border-zinc-300 disabled:opacity-40"
+                className="fs-button fs-button--ghost"
               >
-                <Download size={15} />
+                <Download size={14} />
                 Caderneta PDF
               </button>
               <button
                 type="button"
                 onClick={() => void load()}
                 disabled={loading}
-                className="inline-flex items-center gap-2 rounded-xl bg-zinc-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-50"
+                className="fs-button fs-button--primary"
               >
                 <RefreshCw
-                  size={15}
+                  size={14}
                   className={loading ? "animate-spin" : ""}
                 />
                 Atualizar
@@ -944,18 +946,18 @@ export default function Home() {
             </div>
           </div>
 
-          <nav className="flex gap-1 overflow-x-auto">
+          <nav className="flex gap-1 pb-3">
             <Tab
               active={view === "overview"}
               onClick={() => setView("overview")}
-              icon={<Gauge size={15} />}
+              icon={<Gauge size={14} />}
             >
               Flight Stats
             </Tab>
             <Tab
               active={view === "logbook"}
               onClick={() => setView("logbook")}
-              icon={<BookOpen size={15} />}
+              icon={<BookOpen size={14} />}
             >
               Caderneta ANAC
             </Tab>
@@ -963,7 +965,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1500px] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1540px] px-4 py-5 sm:px-6 lg:px-8">
         {loading && !data ? (
           <div className="rounded-2xl border border-zinc-200 bg-white p-8 text-sm text-zinc-500">
             A sincronizar com o FlightLogger…
@@ -977,74 +979,80 @@ export default function Home() {
         ) : null}
 
         {data && view === "overview" ? (
-          <div className="screen-only space-y-5">
-            <section className="grid gap-3 xl:grid-cols-[1.25fr_0.75fr]">
-              <Card
-                label="Experiência total"
-                value={hoursLabel(stats.experience)}
-                detail={
-                  hoursLabel(stats.total) +
-                  " voo real · " +
-                  hoursLabel(stats.simulator) +
-                  " FSTD"
-                }
-                large
-              />
-              <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1 2xl:grid-cols-3">
-                <Card
-                  label="Este ano"
-                  value={hoursLabel(stats.ytd)}
-                  detail="voo real"
-                />
-                <Card
-                  label="Últimos 90 dias"
-                  value={hoursLabel(stats.last90)}
-                  detail="voo real"
-                />
-                <Card
-                  label="Último voo"
-                  value={
-                    latestDays === null
-                      ? "—"
-                      : latestDays === 0
-                        ? "Hoje"
-                        : latestDays + " d"
-                  }
-                  detail={
-                    latestReal?.registration
-                      ? latestReal.registration +
-                        " · " +
-                        icaoType(latestReal.type_of_aircraft)
-                      : undefined
-                  }
-                />
+          <div className="screen-only space-y-4">
+            <section className="fs-hero">
+              <div className="fs-hero-main">
+                <div>
+                  <p className="fs-eyebrow">TOTAL EXPERIENCE</p>
+                  <p className="fs-total-time">{hoursLabel(stats.experience)}</p>
+                  <p className="fs-total-detail">
+                    {hoursLabel(stats.total)} voo real
+                    <span>•</span>
+                    {hoursLabel(stats.simulator)} FSTD
+                    <span>•</span>
+                    {stats.flightCount} voos
+                  </p>
+                </div>
+
+                <div className="fs-hero-side">
+                  <div>
+                    <span>ESTE ANO</span>
+                    <strong>{hoursLabel(stats.ytd)}</strong>
+                  </div>
+                  <div>
+                    <span>ÚLTIMOS 90 DIAS</span>
+                    <strong>{hoursLabel(stats.last90)}</strong>
+                  </div>
+                  <div>
+                    <span>RECÊNCIA</span>
+                    <strong>
+                      {latestDays === null
+                        ? "—"
+                        : latestDays === 0
+                          ? "Hoje"
+                          : latestDays + " d"}
+                    </strong>
+                    <small>
+                      {latestReal?.registration
+                        ? latestReal.registration +
+                          " · " +
+                          icaoType(latestReal.type_of_aircraft)
+                        : "sem voo"}
+                    </small>
+                  </div>
+                </div>
+              </div>
+
+              <div className="fs-time-ribbon">
+                {[
+                  ["PIC", stats.pic],
+                  ["SPIC", stats.spic],
+                  ["DUAL", stats.dual],
+                  ["IFR", stats.ifr],
+                  ["ME", stats.me],
+                  ["NOITE", stats.night],
+                  ["SOLO", stats.solo],
+                  ["FSTD", stats.simulator],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="fs-ribbon-cell">
+                    <span>{label}</span>
+                    <strong>{hoursLabel(Number(value))}</strong>
+                  </div>
+                ))}
               </div>
             </section>
 
-            <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
-              <Card label="Voo" value={hoursLabel(stats.total)} />
-              <Card label="PIC" value={hoursLabel(stats.pic)} />
-              <Card label="SPIC" value={hoursLabel(stats.spic)} />
-              <Card label="Dual" value={hoursLabel(stats.dual)} />
-              <Card label="IFR" value={hoursLabel(stats.ifr)} />
-              <Card label="ME" value={hoursLabel(stats.me)} />
-              <Card label="Noite" value={hoursLabel(stats.night)} />
-              <Card label="FSTD" value={hoursLabel(stats.simulator)} />
-            </section>
-
-            <section className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-              <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-                <div className="flex items-center justify-between">
+            <section className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+              <div className="fs-panel">
+                <div className="fs-panel-heading">
                   <div>
-                    <h2 className="text-sm font-semibold">Atividade mensal</h2>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      Voo real + treino sintético
-                    </p>
+                    <p className="fs-eyebrow fs-eyebrow--dark">ACTIVITY</p>
+                    <h2>Ritmo de voo</h2>
                   </div>
-                  <span className="text-xs text-zinc-400">últimos 12 meses</span>
+                  <span>12 meses</span>
                 </div>
 
-                <div className="mt-6 flex h-60 items-end gap-2">
+                <div className="fs-chart">
                   {monthly.map((item) => {
                     const flightHeight = Math.round(
                       (item.flightMinutes / maxMonth) * 100,
@@ -1054,144 +1062,169 @@ export default function Home() {
                     );
 
                     return (
-                      <div
-                        key={item.key}
-                        className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2"
-                      >
-                        <span className="text-[10px] font-medium text-zinc-500">
-                          {hm(item.total)}
-                        </span>
-                        <div className="flex h-40 w-full flex-col justify-end overflow-hidden rounded-lg bg-zinc-100 p-1">
+                      <div key={item.key} className="fs-chart-item">
+                        <span className="fs-chart-total">{hm(item.total)}</span>
+                        <div className="fs-chart-track">
                           {item.simMinutes > 0 ? (
                             <div
-                              className="w-full rounded-t-md bg-zinc-400"
-                              style={{
-                                height: Math.max(4, simHeight) + "%",
-                              }}
+                              className="fs-chart-bar fs-chart-bar--sim"
+                              style={{ height: Math.max(3, simHeight) + "%" }}
                               title={"FSTD " + hm(item.simMinutes)}
                             />
                           ) : null}
                           {item.flightMinutes > 0 ? (
                             <div
-                              className="w-full rounded-md bg-zinc-900"
-                              style={{
-                                height: Math.max(4, flightHeight) + "%",
-                              }}
+                              className="fs-chart-bar fs-chart-bar--flight"
+                              style={{ height: Math.max(3, flightHeight) + "%" }}
                               title={"Voo " + hm(item.flightMinutes)}
                             />
                           ) : null}
                         </div>
-                        <span className="max-w-full truncate text-[10px] text-zinc-400">
-                          {item.label}
-                        </span>
+                        <span className="fs-chart-month">{item.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="fs-chart-legend">
+                  <span><i className="fs-dot fs-dot--flight" /> Voo real</span>
+                  <span><i className="fs-dot fs-dot--sim" /> FSTD</span>
+                </div>
+              </div>
+
+              <div className="fs-panel">
+                <div className="fs-panel-heading">
+                  <div>
+                    <p className="fs-eyebrow fs-eyebrow--dark">PROFILE</p>
+                    <h2>Experiência operacional</h2>
+                  </div>
+                </div>
+
+                <div className="fs-profile-list">
+                  {[
+                    ["PIC", stats.pic],
+                    ["SPIC", stats.spic],
+                    ["Dual", stats.dual],
+                    ["IFR", stats.ifr],
+                    ["Multi-engine", stats.me],
+                    ["Noite", stats.night],
+                  ].map(([label, value]) => {
+                    const minutes = Number(value);
+                    const pct = stats.total
+                      ? Math.min(100, Math.round((minutes / stats.total) * 100))
+                      : 0;
+
+                    return (
+                      <div key={String(label)} className="fs-profile-row">
+                        <div className="flex items-center justify-between gap-3">
+                          <span>{label}</span>
+                          <strong>{hoursLabel(minutes)}</strong>
+                        </div>
+                        <div className="fs-profile-track">
+                          <div style={{ width: Math.max(2, pct) + "%" }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="fs-quick-grid">
+                  <div>
+                    <span>VOOS</span>
+                    <strong>{stats.flightCount}</strong>
+                  </div>
+                  <div>
+                    <span>ATER.</span>
+                    <strong>{stats.landings}</strong>
+                  </div>
+                  <div>
+                    <span>AERONAVES</span>
+                    <strong>{stats.aircraftCount}</strong>
+                  </div>
+                  <div>
+                    <span>AERÓDROMOS</span>
+                    <strong>{stats.airportCount}</strong>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section className="grid gap-4 xl:grid-cols-[0.7fr_1.3fr]">
+              <div className="fs-panel overflow-hidden">
+                <div className="fs-panel-heading px-5 pt-5">
+                  <div>
+                    <p className="fs-eyebrow fs-eyebrow--dark">AIRCRAFT TYPES</p>
+                    <h2>Experiência por tipo</h2>
+                  </div>
+                </div>
+                <div className="fs-type-list">
+                  {typeRows.map((row) => {
+                    const maxMinutes = Math.max(1, typeRows[0]?.minutes ?? 1);
+                    const width = Math.max(
+                      6,
+                      Math.round((row.minutes / maxMinutes) * 100),
+                    );
+
+                    return (
+                      <div key={row.icao} className="fs-type-row">
+                        <div className="fs-type-code">{row.icao}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="truncate text-xs text-slate-600">
+                              {[...row.models].join(" / ")}
+                            </span>
+                            <strong className="font-mono text-xs text-slate-900">
+                              {hm(row.minutes)}
+                            </strong>
+                          </div>
+                          <div className="fs-type-track">
+                            <div style={{ width: width + "%" }} />
+                          </div>
+                          <p className="mt-1 text-[10px] text-slate-400">
+                            {row.flights} registos
+                          </p>
+                        </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-zinc-200 bg-white p-5">
-                <h2 className="text-sm font-semibold">Experiência operacional</h2>
-                <div className="mt-5 grid grid-cols-2 gap-3">
-                  <Card
-                    label="Voos"
-                    value={String(stats.flightCount)}
-                    detail={"média " + hoursLabel(stats.average)}
-                  />
-                  <Card
-                    label="Aterragens"
-                    value={String(stats.landings)}
-                    detail={stats.airportCount + " aeródromos"}
-                  />
-                  <Card
-                    label="Aeronaves"
-                    value={String(stats.aircraftCount)}
-                    detail={typeRows.length + " tipos ICAO"}
-                  />
-                  <Card
-                    label="Solo"
-                    value={hoursLabel(stats.solo)}
-                    detail={
-                      stats.total
-                        ? Math.round((stats.solo / stats.total) * 100) + "% do voo"
-                        : undefined
-                    }
-                  />
-                </div>
-              </div>
-            </section>
-
-            <section className="grid gap-5 xl:grid-cols-[0.72fr_1.28fr]">
-              <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-                <div className="border-b border-zinc-200 px-5 py-4">
-                  <h2 className="text-sm font-semibold">Experiência por tipo ICAO</h2>
-                </div>
-                <div className="divide-y divide-zinc-100">
-                  {typeRows.map((row) => (
-                    <div
-                      key={row.icao}
-                      className="grid grid-cols-[70px_1fr_auto] items-center gap-3 px-5 py-3"
-                    >
-                      <span className="font-mono text-xs font-bold">
-                        {row.icao}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="truncate text-xs text-zinc-600">
-                          {[...row.models].join(" / ")}
-                        </p>
-                        <p className="mt-0.5 text-[10px] text-zinc-400">
-                          {row.flights} registos
-                        </p>
-                      </div>
-                      <span className="font-mono text-xs font-semibold">
-                        {hm(row.minutes)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-                <div className="border-b border-zinc-200 px-5 py-4">
-                  <h2 className="text-sm font-semibold">Aeronaves</h2>
+              <div className="fs-panel overflow-hidden">
+                <div className="fs-panel-heading px-5 pt-5">
+                  <div>
+                    <p className="fs-eyebrow fs-eyebrow--dark">FLEET</p>
+                    <h2>Aeronaves voadas</h2>
+                  </div>
+                  <span>{stats.aircraftCount} matrículas</span>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="min-w-[780px] w-full text-left text-sm">
-                    <thead className="bg-zinc-50 text-[10px] uppercase tracking-wider text-zinc-500">
+                  <table className="fs-table min-w-[780px] w-full">
+                    <thead>
                       <tr>
-                        <th className="px-5 py-3">Matrícula</th>
-                        <th className="px-5 py-3">Modelo</th>
-                        <th className="px-5 py-3">ICAO</th>
-                        <th className="px-5 py-3 text-right">Voos</th>
-                        <th className="px-5 py-3 text-right">Tempo</th>
-                        <th className="px-5 py-3 text-right">PIC</th>
-                        <th className="px-5 py-3 text-right">IFR</th>
-                        <th className="px-5 py-3 text-right">Último</th>
+                        <th>Matrícula</th>
+                        <th>Modelo</th>
+                        <th>ICAO</th>
+                        <th className="text-right">Voos</th>
+                        <th className="text-right">Tempo</th>
+                        <th className="text-right">PIC</th>
+                        <th className="text-right">IFR</th>
+                        <th className="text-right">Último</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-zinc-100">
+                    <tbody>
                       {aircraftRows.map((row) => (
                         <tr key={row.registration}>
-                          <td className="px-5 py-3 font-mono text-xs font-semibold">
-                            {row.registration}
-                          </td>
-                          <td className="px-5 py-3">
-                            {[...row.models].join(" / ") || "—"}
-                          </td>
-                          <td className="px-5 py-3 font-mono text-xs font-semibold">
+                          <td className="font-mono font-semibold">{row.registration}</td>
+                          <td>{[...row.models].join(" / ") || "—"}</td>
+                          <td className="font-mono text-xs font-semibold">
                             {[...row.icao].join(" / ") || "—"}
                           </td>
-                          <td className="px-5 py-3 text-right">{row.flights}</td>
-                          <td className="px-5 py-3 text-right font-mono text-xs">
-                            {hm(row.minutes)}
-                          </td>
-                          <td className="px-5 py-3 text-right font-mono text-xs">
-                            {hm(row.pic)}
-                          </td>
-                          <td className="px-5 py-3 text-right font-mono text-xs">
-                            {hm(row.ifr)}
-                          </td>
-                          <td className="px-5 py-3 text-right text-xs text-zinc-500">
+                          <td className="text-right">{row.flights}</td>
+                          <td className="text-right font-mono text-xs">{hm(row.minutes)}</td>
+                          <td className="text-right font-mono text-xs">{hm(row.pic)}</td>
+                          <td className="text-right font-mono text-xs">{hm(row.ifr)}</td>
+                          <td className="text-right text-xs text-slate-500">
                             {displayDate(row.lastDate)}
                           </td>
                         </tr>
@@ -1202,34 +1235,36 @@ export default function Home() {
               </div>
             </section>
 
-            <section className="space-y-3">
-              <div className="grid gap-2 rounded-2xl border border-zinc-200 bg-white p-4 md:grid-cols-[1.4fr_0.7fr_0.9fr_0.9fr]">
-                <label className="flex items-center rounded-xl border border-zinc-200 px-3">
-                  <Search size={15} className="text-zinc-400" />
+            <section className="fs-panel overflow-hidden">
+              <div className="fs-panel-heading px-5 pt-5">
+                <div>
+                  <p className="fs-eyebrow fs-eyebrow--dark">LOG</p>
+                  <h2>Voos e FSTD</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {filtered.length} registos · clica num voo real para abrir o track
+                  </p>
+                </div>
+                <span>Página {safeFlightPage} / {flightPageCount}</span>
+              </div>
+
+              <div className="fs-filters">
+                <label className="fs-search">
+                  <Search size={15} />
                   <input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
                     placeholder="Pesquisar voo, matrícula, aeroporto, instrutor…"
-                    className="w-full bg-transparent px-3 py-2.5 text-sm outline-none"
                   />
                 </label>
 
-                <select
-                  value={year}
-                  onChange={(event) => setYear(event.target.value)}
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none"
-                >
+                <select value={year} onChange={(event) => setYear(event.target.value)}>
                   <option value="all">Todos os anos</option>
                   {options.years.map((item) => (
                     <option key={item} value={item}>{item}</option>
                   ))}
                 </select>
 
-                <select
-                  value={aircraft}
-                  onChange={(event) => setAircraft(event.target.value)}
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none"
-                >
+                <select value={aircraft} onChange={(event) => setAircraft(event.target.value)}>
                   <option value="all">Todos os modelos</option>
                   {options.aircraft.map((item) => (
                     <option key={item} value={item}>{item}</option>
@@ -1239,7 +1274,6 @@ export default function Home() {
                 <select
                   value={registration}
                   onChange={(event) => setRegistration(event.target.value)}
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-sm outline-none"
                 >
                   <option value="all">Todas as matrículas</option>
                   {options.registrations.map((item) => (
@@ -1248,158 +1282,121 @@ export default function Home() {
                 </select>
               </div>
 
-              <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-                <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-                  <div>
-                    <h2 className="text-sm font-semibold">Voos e FSTD</h2>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      {filtered.length} registos · clica num voo para abrir a trajetória ADS-B
-                    </p>
-                  </div>
-                  <p className="text-xs text-zinc-500">
-                    Página {safeFlightPage} / {flightPageCount}
-                  </p>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="min-w-[1160px] w-full text-left text-sm">
-                    <thead className="bg-zinc-50 text-[10px] uppercase tracking-wider text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3">Data</th>
-                        <th className="px-4 py-3">Rota</th>
-                        <th className="px-4 py-3">Aeronave / FSTD</th>
-                        <th className="px-4 py-3">Função</th>
-                        <th className="px-4 py-3">PIC / Instrutor</th>
-                        <th className="px-4 py-3 text-right">Total</th>
-                        <th className="px-4 py-3 text-right">PIC</th>
-                        <th className="px-4 py-3 text-right">SPIC</th>
-                        <th className="px-4 py-3 text-right">Dual</th>
-                        <th className="px-4 py-3 text-right">IFR</th>
-                        <th className="px-4 py-3 text-right">Noite</th>
-                        <th className="px-4 py-3 text-right">LDG</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-100">
-                      {visibleFlights.map((flight) => (
-                        <tr
-                          key={flight.id}
-                          role={isSimulator(flight) ? undefined : "button"}
-                          tabIndex={isSimulator(flight) ? undefined : 0}
-                          onClick={() => {
-                            if (!isSimulator(flight)) setSelectedFlight(flight);
-                          }}
-                          onKeyDown={(event) => {
-                            if (
-                              !isSimulator(flight) &&
-                              (event.key === "Enter" || event.key === " ")
-                            ) {
-                              event.preventDefault();
-                              setSelectedFlight(flight);
-                            }
-                          }}
-                          className={
-                            "hover:bg-zinc-50/70 " +
-                            (isSimulator(flight)
-                              ? ""
-                              : "cursor-pointer focus-within:bg-zinc-50 focus:outline-none")
+              <div className="overflow-x-auto">
+                <table className="fs-table fs-flight-table min-w-[1160px] w-full">
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Rota</th>
+                      <th>Aeronave / FSTD</th>
+                      <th>Função</th>
+                      <th>PIC / Instrutor</th>
+                      <th className="text-right">Total</th>
+                      <th className="text-right">PIC</th>
+                      <th className="text-right">SPIC</th>
+                      <th className="text-right">Dual</th>
+                      <th className="text-right">IFR</th>
+                      <th className="text-right">Noite</th>
+                      <th className="text-right">LDG</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleFlights.map((flight) => (
+                      <tr
+                        key={flight.id}
+                        role={isSimulator(flight) ? undefined : "button"}
+                        tabIndex={isSimulator(flight) ? undefined : 0}
+                        onClick={() => {
+                          if (!isSimulator(flight)) setSelectedFlight(flight);
+                        }}
+                        onKeyDown={(event) => {
+                          if (
+                            !isSimulator(flight) &&
+                            (event.key === "Enter" || event.key === " ")
+                          ) {
+                            event.preventDefault();
+                            setSelectedFlight(flight);
                           }
-                        >
-                          <td className="px-4 py-3 text-xs text-zinc-600">
-                            {displayDate(flight.date)}
-                          </td>
-                          <td className="px-4 py-3 font-medium">
-                            {isSimulator(flight)
-                              ? "FSTD"
-                              : (flight.departure_airport_name || "—") +
-                                " → " +
-                                (flight.arrival_airport_name || "—")}
-                          </td>
-                          <td className="px-4 py-3">
-                            {isSimulator(flight) ? (
-                              <>
-                                <p>{fstdLabel(flight)}</p>
-                                <p className="font-mono text-[11px] text-zinc-500">
-                                  {flight.registration || "—"}
-                                </p>
-                              </>
-                            ) : (
-                              <>
-                                <p>
-                                  {flight.type_of_aircraft || "Sem modelo"} ·{" "}
-                                  <span className="font-mono text-xs font-semibold">
-                                    {icaoType(flight.type_of_aircraft)}
-                                  </span>
-                                </p>
-                                <p className="font-mono text-[11px] text-zinc-500">
-                                  {flight.registration || "—"}
-                                </p>
-                              </>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <Badge>{role(flight)}</Badge>
-                          </td>
-                          <td className="px-4 py-3 text-xs">
-                            {isSimulator(flight)
-                              ? flight.instructor_name || "—"
-                              : logbookPicName(flight) || "—"}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-xs font-semibold">
-                            {hm(
-                              isSimulator(flight)
-                                ? flight.synthetic_training_minutes
-                                : flight.total_minutes,
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-xs">
-                            {hm(flight.pilot_in_command_minutes)}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-xs">
-                            {hm(flight.spic_minutes)}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-xs">
-                            {hm(flight.dual_minutes)}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-xs">
-                            {hm(ifrMinutes(flight))}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-xs">
-                            {hm(flight.night_minutes)}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            {(flight.landings_day ?? 0) +
-                              (flight.landings_night ?? 0)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                        }}
+                        className={isSimulator(flight) ? "" : "fs-flight-row"}
+                      >
+                        <td className="text-xs text-slate-600">{displayDate(flight.date)}</td>
+                        <td className="font-medium">
+                          {isSimulator(flight)
+                            ? "FSTD"
+                            : (flight.departure_airport_name || "—") +
+                              " → " +
+                              (flight.arrival_airport_name || "—")}
+                        </td>
+                        <td>
+                          {isSimulator(flight) ? (
+                            <>
+                              <p>{fstdLabel(flight)}</p>
+                              <p className="mt-0.5 font-mono text-[10px] text-slate-400">
+                                {flight.registration || "—"}
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p>
+                                {flight.type_of_aircraft || "Sem modelo"} ·{" "}
+                                <span className="font-mono text-xs font-semibold">
+                                  {icaoType(flight.type_of_aircraft)}
+                                </span>
+                              </p>
+                              <p className="mt-0.5 font-mono text-[10px] text-slate-400">
+                                {flight.registration || "—"}
+                              </p>
+                            </>
+                          )}
+                        </td>
+                        <td><Badge>{role(flight)}</Badge></td>
+                        <td>
+                          {isSimulator(flight)
+                            ? flight.instructor_name || "—"
+                            : logbookPicName(flight) || "—"}
+                        </td>
+                        <td className="text-right font-mono font-semibold">
+                          {hm(
+                            isSimulator(flight)
+                              ? flight.synthetic_training_minutes
+                              : flight.total_minutes,
+                          )}
+                        </td>
+                        <td className="text-right font-mono">{hm(flight.pilot_in_command_minutes)}</td>
+                        <td className="text-right font-mono">{hm(flight.spic_minutes)}</td>
+                        <td className="text-right font-mono">{hm(flight.dual_minutes)}</td>
+                        <td className="text-right font-mono">{hm(ifrMinutes(flight))}</td>
+                        <td className="text-right font-mono">{hm(flight.night_minutes)}</td>
+                        <td className="text-right">
+                          {(flight.landings_day ?? 0) + (flight.landings_night ?? 0)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
-                <div className="flex items-center justify-between border-t border-zinc-200 px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFlightPage((value) => Math.max(1, value - 1))
-                    }
-                    disabled={safeFlightPage <= 1}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-xs font-semibold disabled:opacity-30"
-                  >
-                    Anterior
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setFlightPage((value) =>
-                        Math.min(flightPageCount, value + 1),
-                      )
-                    }
-                    disabled={safeFlightPage >= flightPageCount}
-                    className="rounded-lg border border-zinc-200 px-3 py-2 text-xs font-semibold disabled:opacity-30"
-                  >
-                    Seguinte
-                  </button>
-                </div>
+              <div className="fs-pagination">
+                <button
+                  type="button"
+                  onClick={() => setFlightPage((value) => Math.max(1, value - 1))}
+                  disabled={safeFlightPage <= 1}
+                >
+                  <ChevronLeft size={14} />
+                  Anterior
+                </button>
+                <span>{safeFlightPage} / {flightPageCount}</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFlightPage((value) => Math.min(flightPageCount, value + 1))
+                  }
+                  disabled={safeFlightPage >= flightPageCount}
+                >
+                  Seguinte
+                  <ChevronRight size={14} />
+                </button>
               </div>
             </section>
           </div>
