@@ -13,11 +13,15 @@ import {
   ChevronRight,
   Download,
   Gauge,
+  Maximize2,
+  Minimize2,
   Moon,
   Plane,
   RefreshCw,
   Search,
   TimerReset,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 
 import { FlightTrackModal } from "@/components/flight-track-modal";
@@ -35,6 +39,8 @@ type Totals = {
   me: number;
   mp: number;
   total: number;
+  takeoffDay: number;
+  takeoffNight: number;
   landDay: number;
   landNight: number;
   night: number;
@@ -234,6 +240,8 @@ function emptyTotals(): Totals {
     me: 0,
     mp: 0,
     total: 0,
+    takeoffDay: 0,
+    takeoffNight: 0,
     landDay: 0,
     landNight: 0,
     night: 0,
@@ -252,6 +260,8 @@ function addTotals(a: Totals, b: Totals): Totals {
     me: a.me + b.me,
     mp: a.mp + b.mp,
     total: a.total + b.total,
+    takeoffDay: a.takeoffDay + b.takeoffDay,
+    takeoffNight: a.takeoffNight + b.takeoffNight,
     landDay: a.landDay + b.landDay,
     landNight: a.landNight + b.landNight,
     night: a.night + b.night,
@@ -285,6 +295,8 @@ function rowTotals(flight: Flight): Totals {
     me: me > 0 && se === 0 ? total : 0,
     mp: safe(flight.multi_pilot_minutes),
     total,
+    takeoffDay: Math.max(0, Math.round(flight.takeoffs_day ?? 0)),
+    takeoffNight: Math.max(0, Math.round(flight.takeoffs_night ?? 0)),
     landDay: Math.max(0, Math.round(flight.landings_day ?? 0)),
     landNight: Math.max(0, Math.round(flight.landings_night ?? 0)),
     night: safe(flight.night_minutes),
@@ -329,6 +341,8 @@ function TotalsRow({ label, totals }: { label: string; totals: Totals }) {
       <td><LogDuration value={totals.mp} /></td>
       <td><LogDuration value={totals.total} /></td>
       <td></td>
+      <td>{totals.takeoffDay || ""}</td>
+      <td>{totals.takeoffNight || ""}</td>
       <td>{totals.landDay || ""}</td>
       <td>{totals.landNight || ""}</td>
       <td><LogDuration value={totals.night} /></td>
@@ -350,11 +364,17 @@ function Logbook({
   previous,
   profileName,
   page,
+  rowOffset = 0,
+  selectedIndex = null,
+  onSelectIndex,
 }: {
   rows: Flight[];
   previous: Flight[];
   profileName: string;
   page: number;
+  rowOffset?: number;
+  selectedIndex?: number | null;
+  onSelectIndex?: (index: number) => void;
 }) {
   const pageTotals = totalRows(rows);
   const previousTotals = totalRows(previous);
@@ -388,7 +408,7 @@ function Logbook({
               <th colSpan={3}>5 · Tempo de piloto</th>
               <th rowSpan={2}>6<br />Tempo total</th>
               <th rowSpan={2}>7<br />Nome(s) PIC</th>
-              <th colSpan={2}>8 · Aterragens</th>
+              <th colSpan={4}>8 · Descolagens / aterragens</th>
               <th colSpan={2}>9 · Condições operacionais</th>
               <th colSpan={4}>10 · Função do piloto</th>
               <th colSpan={3}>11 · Treino sintético</th>
@@ -404,8 +424,10 @@ function Logbook({
               <th>SE</th>
               <th>ME</th>
               <th>MP</th>
-              <th>Dia</th>
-              <th>Noite</th>
+              <th>Des. Dia</th>
+              <th>Des. Noite</th>
+              <th>Aterr. Dia</th>
+              <th>Aterr. Noite</th>
               <th>Noite</th>
               <th>IFR</th>
               <th>PIC</th>
@@ -422,7 +444,7 @@ function Logbook({
               if (!flight) {
                 return (
                   <tr className="logbook-entry-row" key={"blank-" + index}>
-                    {Array.from({ length: 24 }).map((_, cell) => (
+                    {Array.from({ length: 26 }).map((_, cell) => (
                       <td key={cell}></td>
                     ))}
                   </tr>
@@ -431,8 +453,22 @@ function Logbook({
 
               if (isSimulator(flight)) {
                 return (
-                  <tr className="logbook-entry-row" key={flight.id}>
-                    {Array.from({ length: 20 }).map((_, cell) => (
+                  <tr
+                    className={
+                      "logbook-entry-row logbook-selectable-row" +
+                      (selectedIndex === rowOffset + index
+                        ? " logbook-entry-row--selected"
+                        : "")
+                    }
+                    key={flight.id}
+                    data-log-index={rowOffset + index}
+                    onClick={
+                      onSelectIndex
+                        ? () => onSelectIndex(rowOffset + index)
+                        : undefined
+                    }
+                  >
+                    {Array.from({ length: 22 }).map((_, cell) => (
                       <td key={cell}></td>
                     ))}
                     <td>{logDate(flight.date)}</td>
@@ -452,7 +488,21 @@ function Logbook({
               const totals = rowTotals(flight);
 
               return (
-                <tr className="logbook-entry-row" key={flight.id}>
+                <tr
+                  className={
+                    "logbook-entry-row logbook-selectable-row" +
+                    (selectedIndex === rowOffset + index
+                      ? " logbook-entry-row--selected"
+                      : "")
+                  }
+                  key={flight.id}
+                  data-log-index={rowOffset + index}
+                  onClick={
+                    onSelectIndex
+                      ? () => onSelectIndex(rowOffset + index)
+                      : undefined
+                  }
+                >
                   <td>{logDate(flight.date)}</td>
                   <td>{flight.departure_airport_name || ""}</td>
                   <td>{utcTime(flight.off_block)}</td>
@@ -484,6 +534,8 @@ function Logbook({
                       </td>
                     );
                   })()}
+                  <td>{totals.takeoffDay || ""}</td>
+                  <td>{totals.takeoffNight || ""}</td>
                   <td>{totals.landDay || ""}</td>
                   <td>{totals.landNight || ""}</td>
                   <td><LogDuration value={totals.night} /></td>
@@ -642,6 +694,9 @@ export default function Home() {
   const [typeCode, setTypeCode] = useState("all");
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [printAll, setPrintAll] = useState(false);
+  const [selectedLogIndex, setSelectedLogIndex] = useState<number | null>(null);
+  const [logbookZoom, setLogbookZoom] = useState(0);
+  const [logbookFullscreen, setLogbookFullscreen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -697,6 +752,18 @@ export default function Home() {
       window.removeEventListener("afterprint", finish);
     };
   }, [printAll]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setLogbookFullscreen(
+        document.fullscreenElement?.id === "logbook-reader",
+      );
+    };
+
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
 
   useEffect(() => {
     setFlightPage(1);
@@ -984,6 +1051,95 @@ export default function Home() {
   const logStart = (safeLogPage - 1) * LOGBOOK_ROWS;
   const logRows = chronological.slice(logStart, logStart + LOGBOOK_ROWS);
   const previousLogRows = chronological.slice(0, logStart);
+
+  useEffect(() => {
+    if (selectedLogIndex === null) return;
+    const targetPage = Math.floor(selectedLogIndex / LOGBOOK_ROWS) + 1;
+    if (targetPage !== safeLogPage) setLogPage(targetPage);
+  }, [selectedLogIndex, safeLogPage]);
+
+  useEffect(() => {
+    if (view !== "logbook" || selectedLogIndex === null) return;
+    const timer = window.setTimeout(() => {
+      document
+        .querySelector(
+          `[data-log-index="${selectedLogIndex}"]`,
+        )
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+          inline: "nearest",
+        });
+    }, 60);
+
+    return () => window.clearTimeout(timer);
+  }, [view, selectedLogIndex, safeLogPage]);
+
+  useEffect(() => {
+    if (view !== "logbook") return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.matches(
+          "input, select, textarea, button, a, [contenteditable='true']",
+        )
+      ) {
+        return;
+      }
+
+      if (!chronological.length) return;
+      event.preventDefault();
+
+      setSelectedLogIndex((current) => {
+        if (current === null) {
+          return event.key === "ArrowDown"
+            ? Math.min(logStart, chronological.length - 1)
+            : Math.min(
+                logStart + Math.max(0, logRows.length - 1),
+                chronological.length - 1,
+              );
+        }
+
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        return Math.min(
+          chronological.length - 1,
+          Math.max(0, current + step),
+        );
+      });
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [view, chronological.length, logStart, logRows.length]);
+
+  const toggleLogbookFullscreen = async () => {
+    const reader = document.getElementById("logbook-reader");
+    if (!reader) return;
+
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+
+    if (logbookFullscreen) {
+      setLogbookFullscreen(false);
+      return;
+    }
+
+    if (typeof reader.requestFullscreen === "function") {
+      try {
+        await reader.requestFullscreen();
+        return;
+      } catch {
+        // Fall back to the in-page fullscreen mode below.
+      }
+    }
+
+    setLogbookFullscreen(true);
+  };
 
   const latestReal = flights.find((flight) => !isSimulator(flight));
   const latestDays = daysSince(latestReal?.date);
@@ -1535,48 +1691,98 @@ export default function Home() {
         ) : null}
 
         {data && view === "logbook" ? (
-          <div>
-            <div className="screen-only mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div
+            id="logbook-reader"
+            className={
+              "logbook-reader screen-only logbook-zoom-" +
+              [100, 115, 130, 145][logbookZoom] +
+              (logbookFullscreen ? " is-fullscreen" : "")
+            }
+          >
+            <div className="logbook-reader-toolbar">
               <div>
-                <h2 className="text-sm font-semibold">Caderneta ANAC / FCL.050</h2>
-                <p className="mt-1 text-xs text-zinc-500">
+                <h2>Caderneta ANAC / FCL.050</h2>
+                <p>
                   {chronological.length} registos · {LOGBOOK_ROWS} por página
+                  {selectedLogIndex !== null
+                    ? " · linha " + (selectedLogIndex + 1) + " selecionada"
+                    : ""}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+
+              <div className="logbook-reader-actions">
+                <div className="logbook-zoom-controls" aria-label="Zoom da caderneta">
+                  <button
+                    type="button"
+                    onClick={() => setLogbookZoom((value) => Math.max(0, value - 1))}
+                    disabled={logbookZoom === 0}
+                    aria-label="Diminuir caderneta"
+                  >
+                    <ZoomOut size={15} />
+                  </button>
+                  <span>{[100, 115, 130, 145][logbookZoom]}%</span>
+                  <button
+                    type="button"
+                    onClick={() => setLogbookZoom((value) => Math.min(3, value + 1))}
+                    disabled={logbookZoom === 3}
+                    aria-label="Aumentar caderneta"
+                  >
+                    <ZoomIn size={15} />
+                  </button>
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => setLogPage((value) => Math.max(1, value - 1))}
-                  disabled={safeLogPage <= 1}
-                  className="inline-flex items-center gap-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-30"
+                  onClick={() => void toggleLogbookFullscreen()}
+                  className="logbook-reader-button"
                 >
-                  <ChevronLeft size={14} />
-                  Anterior
+                  {logbookFullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+                  {logbookFullscreen ? "Sair fullscreen" : "Fullscreen"}
                 </button>
-                <span className="min-w-24 text-center font-mono text-xs text-zinc-600">
-                  {safeLogPage} / {logPageCount}
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setLogPage((value) => Math.min(logPageCount, value + 1))
-                  }
-                  disabled={safeLogPage >= logPageCount}
-                  className="inline-flex items-center gap-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold disabled:opacity-30"
-                >
-                  Seguinte
-                  <ChevronRight size={14} />
-                </button>
+
+                <div className="logbook-page-controls">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedLogIndex(null);
+                      setLogPage((value) => Math.max(1, value - 1));
+                    }}
+                    disabled={safeLogPage <= 1}
+                  >
+                    <ChevronLeft size={14} />
+                    Anterior
+                  </button>
+                  <span>{safeLogPage} / {logPageCount}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedLogIndex(null);
+                      setLogPage((value) => Math.min(logPageCount, value + 1));
+                    }}
+                    disabled={safeLogPage >= logPageCount}
+                  >
+                    Seguinte
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
               </div>
             </div>
 
-            <p className="screen-only fs-logbook-hint">Desliza a caderneta na horizontal para ver todas as colunas. O PDF mantém o formato A4 horizontal.</p>
+            <p className="fs-logbook-hint">
+              Clica numa linha para a destacar. Usa ↑ e ↓ para avançar linha a
+              linha; a página muda automaticamente. Usa + / − para aumentar a
+              caderneta.
+            </p>
+
             <div className="logbook-scroll">
               <Logbook
                 rows={logRows}
                 previous={previousLogRows}
                 profileName={profileName}
                 page={safeLogPage}
+                rowOffset={logStart}
+                selectedIndex={selectedLogIndex}
+                onSelectIndex={setSelectedLogIndex}
               />
             </div>
           </div>
