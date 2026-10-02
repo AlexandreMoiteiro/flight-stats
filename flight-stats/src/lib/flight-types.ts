@@ -29,6 +29,8 @@ export type Flight = {
   dual_minutes: number;
   synthetic_training_minutes: number;
   instructor_synthetic_training_minutes: number;
+  takeoffs_day: number;
+  takeoffs_night: number;
   landings_day: number;
   landings_night: number;
   remarks_and_endorsements: string | null;

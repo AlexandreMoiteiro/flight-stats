@@ -1170,6 +1170,198 @@ button {
   vertical-align: middle;
 }
 
+.logbook-reader {
+  position: relative;
+  background: #f4f4f5;
+}
+
+.logbook-reader-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+  border: 1px solid #d4d4d8;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 10px 12px;
+}
+
+.logbook-reader-toolbar h2 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #18181b;
+}
+
+.logbook-reader-toolbar p {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #71717a;
+}
+
+.logbook-reader-actions,
+.logbook-page-controls,
+.logbook-zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.logbook-reader-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.logbook-reader-button,
+.logbook-page-controls button,
+.logbook-zoom-controls button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #d4d4d8;
+  background: white;
+  padding: 7px 10px;
+  color: #27272a;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.logbook-page-controls button:disabled,
+.logbook-zoom-controls button:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+
+.logbook-page-controls > span,
+.logbook-zoom-controls > span {
+  min-width: 58px;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: #52525b;
+}
+
+.logbook-reader .fs-logbook-hint {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #52525b;
+}
+
+.logbook-reader .logbook-scroll {
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.logbook-reader.logbook-zoom-100 .logbook-paper {
+  zoom: 1;
+}
+
+.logbook-reader.logbook-zoom-115 .logbook-paper {
+  zoom: 1.15;
+}
+
+.logbook-reader.logbook-zoom-130 .logbook-paper {
+  zoom: 1.3;
+}
+
+.logbook-reader.logbook-zoom-145 .logbook-paper {
+  zoom: 1.45;
+}
+
+.logbook-reader:fullscreen,
+.logbook-reader.is-fullscreen {
+  z-index: 1000;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  overflow: hidden;
+  background: #eceeef;
+  padding: 12px;
+}
+
+.logbook-reader.is-fullscreen {
+  position: fixed;
+  inset: 0;
+}
+
+.logbook-reader:fullscreen .logbook-reader-toolbar,
+.logbook-reader.is-fullscreen .logbook-reader-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  margin-bottom: 8px;
+}
+
+.logbook-reader:fullscreen .logbook-scroll,
+.logbook-reader.is-fullscreen .logbook-scroll {
+  max-height: calc(100vh - 104px);
+  overflow: auto;
+}
+
+.logbook-selectable-row {
+  cursor: pointer;
+  transition:
+    height 150ms ease,
+    background 150ms ease,
+    color 150ms ease;
+}
+
+.logbook-selectable-row:hover td {
+  background: #f4f8ff;
+}
+
+.logbook-entry-row--selected {
+  height: 40px !important;
+}
+
+.logbook-entry-row--selected td {
+  border-top: 2px solid #2563eb !important;
+  border-bottom: 2px solid #2563eb !important;
+  background: #eff6ff !important;
+  color: #0757c8 !important;
+  font-size: 1.18em;
+  font-weight: 700;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.logbook-entry-row--selected td:first-child {
+  border-left: 3px solid #2563eb !important;
+}
+
+.logbook-entry-row--selected td:last-child {
+  border-right: 3px solid #2563eb !important;
+}
+
+.logbook-entry-row--selected .logbook-pic-name {
+  font-size: 1em !important;
+  line-height: 1.05;
+}
+
+@media screen and (max-width: 760px) {
+  .logbook-reader-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .logbook-reader-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .logbook-reader:fullscreen,
+  .logbook-reader.is-fullscreen {
+    padding: 6px;
+  }
+
+  .logbook-reader:fullscreen .logbook-scroll,
+  .logbook-reader.is-fullscreen .logbook-scroll {
+    max-height: calc(100vh - 154px);
+  }
+}
+
 .print-logbook-book {
   display: none;
 }

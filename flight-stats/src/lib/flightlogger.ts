@@ -98,6 +98,7 @@ const ACCOUNT_FLIGHTS_QUERY = `
           ifSeconds
           ifrSeconds
           landings {
+            isArrival
             landingType
             landingTypeCount
             nightLanding
@@ -229,6 +230,7 @@ type AccountUserData = {
 };
 
 type AccountLanding = {
+  isArrival?: boolean | null;
   landingType?: "APPROACH" | "GO_AROUND" | "LANDING" | "TOUCH_AND_GO" | null;
   landingTypeCount?: number | null;
   nightLanding?: boolean | null;
@@ -481,6 +483,8 @@ function mapLogbookEntry(entry: FlightLoggerLogbookEntry): Flight {
     instructor_synthetic_training_minutes: secondsToMinutes(
       entry.instructorSyntheticTrainingSeconds,
     ),
+    takeoffs_day: Math.max(0, entry.landingsDay ?? 0),
+    takeoffs_night: Math.max(0, entry.landingsNight ?? 0),
     landings_day: Math.max(0, entry.landingsDay ?? 0),
     landings_night: Math.max(0, entry.landingsNight ?? 0),
     remarks_and_endorsements: cleanText(entry.remarksAndEndorsements),
@@ -519,6 +523,46 @@ function mapAccountFlight(
     },
     { day: 0, night: 0 },
   );
+
+  const subsequentTakeoffs = (entry.landings ?? []).reduce(
+    (total, landing) => {
+      if (!landing) return total;
+
+      const producesAnotherTakeoff =
+        landing.landingType === "TOUCH_AND_GO" ||
+        (landing.landingType === "LANDING" && landing.isArrival === false);
+
+      if (!producesAnotherTakeoff) return total;
+
+      const count = Math.max(0, landing.landingTypeCount ?? 0);
+      if (landing.nightLanding) total.night += count;
+      else total.day += count;
+      return total;
+    },
+    { day: 0, night: 0 },
+  );
+
+  const hasFlightActivity =
+    !isSimulator &&
+    Boolean(offBlock && onBlock) &&
+    (flightSeconds > 0 ||
+      Math.max(0, entry.daySeconds ?? 0) > 0 ||
+      Math.max(0, entry.nightSeconds ?? 0) > 0 ||
+      landings.day + landings.night > 0);
+
+  const initialTakeoffAtNight =
+    hasFlightActivity &&
+    Math.max(0, entry.daySeconds ?? 0) === 0 &&
+    Math.max(0, entry.nightSeconds ?? 0) > 0;
+
+  const takeoffs = {
+    day:
+      subsequentTakeoffs.day +
+      (hasFlightActivity && !initialTakeoffAtNight ? 1 : 0),
+    night:
+      subsequentTakeoffs.night +
+      (hasFlightActivity && initialTakeoffAtNight ? 1 : 0),
+  };
 
   const vfrMinutes = secondsToMinutes(entry.vfrSeconds);
   const ifrMinutes = secondsToMinutes(entry.ifrSeconds);
@@ -577,6 +621,8 @@ function mapAccountFlight(
     dual_minutes: dualMinutes,
     synthetic_training_minutes: simulatorMinutes,
     instructor_synthetic_training_minutes: 0,
+    takeoffs_day: takeoffs.day,
+    takeoffs_night: takeoffs.night,
     landings_day: landings.day,
     landings_night: landings.night,
     remarks_and_endorsements: null,
