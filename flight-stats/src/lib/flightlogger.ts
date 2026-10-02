@@ -98,6 +98,7 @@ const ACCOUNT_FLIGHTS_QUERY = `
           ifSeconds
           ifrSeconds
           landings {
+            isArrival
             landingType
             landingTypeCount
             nightLanding
@@ -229,6 +230,7 @@ type AccountUserData = {
 };
 
 type AccountLanding = {
+  isArrival?: boolean | null;
   landingType?: "APPROACH" | "GO_AROUND" | "LANDING" | "TOUCH_AND_GO" | null;
   landingTypeCount?: number | null;
   nightLanding?: boolean | null;
@@ -522,9 +524,16 @@ function mapAccountFlight(
     { day: 0, night: 0 },
   );
 
-  const touchAndGoTakeoffs = (entry.landings ?? []).reduce(
+  const subsequentTakeoffs = (entry.landings ?? []).reduce(
     (total, landing) => {
-      if (!landing || landing.landingType !== "TOUCH_AND_GO") return total;
+      if (!landing) return total;
+
+      const producesAnotherTakeoff =
+        landing.landingType === "TOUCH_AND_GO" ||
+        (landing.landingType === "LANDING" && landing.isArrival === false);
+
+      if (!producesAnotherTakeoff) return total;
+
       const count = Math.max(0, landing.landingTypeCount ?? 0);
       if (landing.nightLanding) total.night += count;
       else total.day += count;
@@ -533,19 +542,26 @@ function mapAccountFlight(
     { day: 0, night: 0 },
   );
 
-  const hasFlightTime = flightSeconds > 0;
+  const hasFlightActivity =
+    !isSimulator &&
+    Boolean(offBlock && onBlock) &&
+    (flightSeconds > 0 ||
+      Math.max(0, entry.daySeconds ?? 0) > 0 ||
+      Math.max(0, entry.nightSeconds ?? 0) > 0 ||
+      landings.day + landings.night > 0);
+
   const initialTakeoffAtNight =
-    hasFlightTime &&
+    hasFlightActivity &&
     Math.max(0, entry.daySeconds ?? 0) === 0 &&
     Math.max(0, entry.nightSeconds ?? 0) > 0;
 
   const takeoffs = {
     day:
-      touchAndGoTakeoffs.day +
-      (hasFlightTime && !initialTakeoffAtNight && !isSimulator ? 1 : 0),
+      subsequentTakeoffs.day +
+      (hasFlightActivity && !initialTakeoffAtNight ? 1 : 0),
     night:
-      touchAndGoTakeoffs.night +
-      (hasFlightTime && initialTakeoffAtNight && !isSimulator ? 1 : 0),
+      subsequentTakeoffs.night +
+      (hasFlightActivity && initialTakeoffAtNight ? 1 : 0),
   };
 
   const vfrMinutes = secondsToMinutes(entry.vfrSeconds);
