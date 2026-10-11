@@ -13,6 +13,8 @@ import {
   ChevronRight,
   Download,
   Gauge,
+  Plus,
+  Database,
   Maximize2,
   Minimize2,
   Moon,
@@ -25,6 +27,7 @@ import {
 } from "lucide-react";
 
 import { FlightTrackModal } from "@/components/flight-track-modal";
+import { NewFlightModal } from "@/components/new-flight-modal";
 import type {
   Flight,
   FlightStatsErrorResponse,
@@ -693,6 +696,7 @@ export default function Home() {
   const [kind, setKind] = useState<FlightKind>("all");
   const [typeCode, setTypeCode] = useState("all");
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
+  const [showNewFlight, setShowNewFlight] = useState(false);
   const [printAll, setPrintAll] = useState(false);
   const [selectedLogIndex, setSelectedLogIndex] = useState<number | null>(null);
   const [logbookZoom, setLogbookZoom] = useState(0);
@@ -1166,7 +1170,10 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 fs-header-actions">
+              <button type="button" className="fs-button fs-button--add" onClick={() => setShowNewFlight(true)}>
+                <Plus size={16} /> <span>Adicionar voo</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setPrintAll(true)}
@@ -1174,7 +1181,7 @@ export default function Home() {
                 className="fs-button fs-button--ghost"
               >
                 <Download size={14} />
-                Caderneta PDF
+                Exportar PDF
               </button>
               <button
                 type="button"
@@ -1186,7 +1193,7 @@ export default function Home() {
                   size={14}
                   className={loading ? "animate-spin" : ""}
                 />
-                Atualizar
+                Recarregar
               </button>
             </div>
           </div>
@@ -1197,14 +1204,14 @@ export default function Home() {
               onClick={() => setView("overview")}
               icon={<Gauge size={14} />}
             >
-              Flight Stats
+              Resumo
             </Tab>
             <Tab
               active={view === "logbook"}
               onClick={() => setView("logbook")}
               icon={<BookOpen size={14} />}
             >
-              Caderneta ANAC
+              Caderneta de voo
             </Tab>
           </nav>
         </div>
@@ -1213,7 +1220,7 @@ export default function Home() {
       <div className="mx-auto max-w-[1840px] px-4 py-5 sm:px-6 lg:px-8">
         {loading && !data ? (
           <div className="fs-notice" role="status">
-            A sincronizar com o FlightLogger…
+            A carregar os voos guardados no Supabase…
           </div>
         ) : null}
 
@@ -1229,15 +1236,15 @@ export default function Home() {
               <SynopticMotif />
               <div className="fs-ofp-titlebar">
                 <div>
-                  <span>FLIGHT EXPERIENCE</span>
-                  <strong>PERSONAL OPERATIONS RECORD</strong>
+                  <span>FLIGHT LOGBOOK</span>
+                  <strong>O TEU HISTÓRICO DE VOO</strong>
                 </div>
                 <div>
                   <span>PILOT</span>
                   <strong>{profileName || "—"}</strong>
                 </div>
                 <div>
-                  <span>LAST SYNC / UTC</span>
+                  <span>ARQUIVO ATÉ / UTC</span>
                   <strong>
                     {displayDate(data.syncedAt)} {utcTime(data.syncedAt)}Z
                   </strong>
@@ -1246,7 +1253,7 @@ export default function Home() {
 
               <div className="fs-hero-main">
                 <div>
-                  <p className="fs-eyebrow">TOTAL EXPERIENCE</p>
+                  <p className="fs-eyebrow">EXPERIÊNCIA ACUMULADA</p>
                   <p className="fs-total-time">{hoursLabel(stats.experience)}</p>
                   <p className="fs-total-detail">
                     {hoursLabel(stats.total)} voo real
@@ -1308,6 +1315,14 @@ export default function Home() {
               </div>
             </section>
 
+            <div className="fs-archive-note">
+              <div className="fs-archive-note-icon"><Database size={20} /></div>
+              <div>
+                <strong>Histórico Sevenair preservado</strong>
+                <p>{flights.filter((flight) => !flight.id.startsWith("manual-")).length} registos arquivados no Supabase. Sem sincronizações com a API do FlightLogger. Acrescenta os próximos voos manualmente.</p>
+              </div>
+              <button type="button" onClick={() => setShowNewFlight(true)}><Plus size={16} /> Novo registo</button>
+            </div>
             <nav className="fs-section-nav" aria-label="Secções do Flight Stats">
               <span>EXPLORAR / 01—04</span>
               <a href="#activity">Atividade</a>
@@ -1807,6 +1822,17 @@ export default function Home() {
             );
           })}
         </div>
+      ) : null}
+
+      {showNewFlight ? (
+        <NewFlightModal
+          onClose={() => setShowNewFlight(false)}
+          onSaved={async () => {
+            setShowNewFlight(false);
+            await load();
+            setView("overview");
+          }}
+        />
       ) : null}
 
       {selectedFlight ? (

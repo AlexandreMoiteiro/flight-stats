@@ -128,7 +128,9 @@ function buildSegments(points: TrackPoint[]): TrackPoint[][] {
     const distanceNm = haversineNm(previous, current);
     const impliedSpeed =
       gapMinutes > 0 ? distanceNm / (gapMinutes / 60) : Number.POSITIVE_INFINITY;
-    const shouldSplit = gapMinutes > 2.5 || impliedSpeed > 300;
+    // ADS-B sources often report at irregular intervals. A short coverage gap
+    // is not enough to discard an otherwise coherent piece of the same flight.
+    const shouldSplit = gapMinutes > 12 || impliedSpeed > 300;
 
     if (shouldSplit) segments.push([current]);
     else segments[segments.length - 1].push(current);
@@ -201,6 +203,18 @@ function MapView({ points }: { points: TrackPoint[] }) {
       }
     }
 
+    const bridges = points.slice(1).flatMap((current, index) => {
+      const previous = points[index];
+      const gap = pointGapMinutes(previous, current);
+      const distance = haversineNm(previous, current);
+      const implied = gap > 0 ? distance / (gap / 60) : Infinity;
+      // Show a clearly dashed estimate only for short, physically plausible gaps.
+      if (gap <= 12 || gap > 30 || distance > 20 || implied > 180) return [];
+      const a = worldPoint(previous.lat, previous.lon, zoom);
+      const b = worldPoint(current.lat, current.lon, zoom);
+      return [{ x1: a.x - left, y1: a.y - top, x2: b.x - left, y2: b.y - top }];
+    });
+
     const segments = buildSegments(points).map((segment) =>
       segment
         .map((point) => {
@@ -224,6 +238,7 @@ function MapView({ points }: { points: TrackPoint[] }) {
     return {
       tiles,
       segments,
+      bridges,
       first: { x: first.x - left, y: first.y - top },
       last: { x: last.x - left, y: last.y - top },
     };
@@ -263,6 +278,14 @@ function MapView({ points }: { points: TrackPoint[] }) {
           ))}
         </g>
 
+        {geometry.bridges.map((bridge, index) => (
+          <line
+            key={"bridge-" + index}
+            x1={bridge.x1} y1={bridge.y1} x2={bridge.x2} y2={bridge.y2}
+            stroke="#2563eb" strokeWidth="3" strokeDasharray="9 8"
+            strokeLinecap="round" opacity=".75"
+          />
+        ))}
         {geometry.segments.map((segment, index) => (
           <polyline
             key={index}
@@ -280,7 +303,7 @@ function MapView({ points }: { points: TrackPoint[] }) {
             key={"route-" + index}
             points={segment}
             fill="none"
-            stroke="#18181b"
+            stroke="#1d4ed8"
             strokeWidth="4"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -312,7 +335,7 @@ function MapView({ points }: { points: TrackPoint[] }) {
         />
       </svg>
       <div className="track-map-caption">
-        <span>Trajetória ADS-B · linha interrompida quando há perda de cobertura</span>
+        <span>Traçado ADS-B a azul · tracejado = ligação estimada entre pontos · podem existir lacunas</span>
         <span>© OpenStreetMap contributors · fontes ADS-B identificadas no detalhe</span>
       </div>
     </div>
@@ -376,8 +399,8 @@ export function FlightTrackModal({ flight, onClose }: Props) {
         // Historical providers often detect takeoff/landing outside the
         // FlightLogger booking/block timestamps, so use a wider discovery
         // window only as fallback. Flight-specific points always win.
-        start.setMinutes(start.getMinutes() - 45);
-        end.setMinutes(end.getMinutes() + 45);
+        start.setMinutes(start.getMinutes() - 30);
+        end.setMinutes(end.getMinutes() + 30);
 
         const fallback = await supabase
           .from("flight_stats_adsb_points")
@@ -412,7 +435,10 @@ export function FlightTrackModal({ flight, onClose }: Props) {
             callsign: String(point.callsign ?? "").trim() || null,
             icao_hex: String(point.icao_hex ?? "").trim().toUpperCase() || null,
             source: String(point.source ?? "").trim() || null,
-          })),
+          })).filter((point) =>
+            Number.isFinite(point.lat) && Number.isFinite(point.lon) &&
+            Math.abs(point.lat) <= 85 && Math.abs(point.lon) <= 180,
+          ).sort((a,b) => new Date(a.observed_at).getTime() - new Date(b.observed_at).getTime()),
         );
       }
 
@@ -441,7 +467,7 @@ export function FlightTrackModal({ flight, onClose }: Props) {
         gapMinutes > 0
           ? distanceNm / (gapMinutes / 60)
           : Number.POSITIVE_INFINITY;
-      const connected = gapMinutes <= 2.5 && impliedSpeed <= 300;
+      const connected = gapMinutes <= 12 && impliedSpeed <= 300;
 
       if (connected) {
         distance += distanceNm;
@@ -496,11 +522,8 @@ export function FlightTrackModal({ flight, onClose }: Props) {
   const isAttachedProviderTrack =
     trackRef?.source_kind === "flightlogger-attached-kml";
 
-  const hasUsableTrack =
-    points.length >= 2 &&
-    (isAttachedProviderTrack ||
-      ((trackStats?.coverage ?? 0) >= 70 && points.length >= 10) ||
-      ((trackStats?.coverage ?? 0) >= 35 && points.length >= 30));
+  // Incomplete evidence is shown as a partial trace, never hidden as a complete failure.
+  const hasUsableTrack = points.length >= 2;
 
   const evidenceCallsign =
     trackRef?.callsign || trackStats?.callsigns[0] || "—";
@@ -566,6 +589,12 @@ export function FlightTrackModal({ flight, onClose }: Props) {
           ) : hasUsableTrack ? (
             <>
               <MapView points={points} />
+              {!isAttachedProviderTrack && (trackStats?.coverage ?? 0) < 60 ? (
+                <p className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-900">
+                  Trajetória parcial: os dados ADS-B disponíveis cobrem aproximadamente {trackStats?.coverage ?? 0}% do tempo de bloco.
+                  As linhas contínuas ligam observações reais; as ligações tracejadas são estimativas e não posições GPS confirmadas.
+                </p>
+              ) : null}
 
               <div className="track-evidence-strip">
                 <div>
