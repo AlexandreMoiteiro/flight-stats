@@ -1853,3 +1853,27 @@ body { background: #f3f6fb; color: #172538; }
 @media print {
   .fs-entry-backdrop, .fs-archive-note { display:none !important; }
 }
+
+
+/* Compact personal logbook editor and manual-entry actions */
+.fs-entry-header { align-items:center; padding:19px 27px; }
+.fs-entry-header h2 { flex:1; font-size:23px; margin:0; }
+.fs-entry-icon { width:39px; height:39px; flex-basis:39px; border-radius:12px; }
+.fs-entry-form { padding-top:15px; }
+.fs-entry-form section { padding:15px 0; }
+.fs-entry-form section h3,.fs-entry-disclosure { margin-bottom:12px; }
+.fs-entry-kind { display:flex; gap:5px; background:#edf2fa; padding:4px; border-radius:12px; }
+.fs-entry-kind button { flex:1; padding:9px 15px; background:transparent; border:0; color:#55708d; font-size:13px; font-weight:700; cursor:pointer; border-radius:9px; }
+.fs-entry-kind button.is-active { background:#fff; color:#1d4ed8; box-shadow:0 1px 4px #253f5d19; }
+.fs-entry-kind button:focus-visible { outline:2px solid #2563eb; }
+.fs-delete-flight { border:0; background:transparent; color:#94a3b8; display:inline-flex; align-items:center; justify-content:center; border-radius:9px; padding:8px; cursor:pointer; }
+.fs-delete-flight:hover,.fs-delete-flight:focus-visible { background:#fff0f0; color:#b91c1c; }
+.fs-delete-flight:disabled { opacity:.35; cursor:wait; }
+.fs-mobile-flight-row { position:relative; border-bottom:1px solid #dbe5f1; }
+.fs-mobile-flight-row .fs-mobile-flight { border-bottom:0; }
+.fs-delete-flight--mobile { position:absolute; bottom:8px; right:7px; z-index:1; }
+.fs-mobile-flight-row:has(.fs-delete-flight--mobile) .fs-mobile-flight-bottom { padding-right:34px; }
+@media screen and (max-width:640px) {
+  .fs-entry-header { padding:17px 18px; }
+  .fs-entry-header h2 { font-size:21px; }
+}
