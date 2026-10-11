@@ -1,45 +1,40 @@
 import { NextResponse } from "next/server";
-
-import { fetchActiveAircraft } from "@/lib/flightlogger";
+import { supabase } from "@/lib/supabase";
+import type { Flight } from "@/lib/flight-types";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const aircraft = await fetchActiveAircraft();
-
+    const { data, error } = await supabase
+      .from("flight_stats_flights")
+      .select("registration,payload")
+      .not("registration", "is", null)
+      .order("date", { ascending: false })
+      .limit(1000);
+    if (error) throw error;
+    const fleet = new Map<string, {
+      registration: string;
+      model: string | null;
+      aircraftClass: "SINGLE_ENGINE" | "MULTI_ENGINE" | null;
+    }>();
+    for (const row of data ?? []) {
+      const flight = row.payload as Flight;
+      const registration = String(row.registration ?? "").toUpperCase();
+      if (!registration || fleet.has(registration) || flight.synthetic_training_minutes > 0) continue;
+      fleet.set(registration, {
+        registration,
+        model: flight.type_of_aircraft,
+        aircraftClass: flight.multi_engine_vfr_minutes + flight.multi_engine_ifr_minutes > 0
+          ? "MULTI_ENGINE" : "SINGLE_ENGINE",
+      });
+    }
     return NextResponse.json(
-      {
-        aircraft,
-        syncedAt: new Date().toISOString(),
-      },
-      {
-        headers: {
-          "Cache-Control": "no-store, max-age=0",
-        },
-      },
+      { aircraft: [...fleet.values()], source: "supabase-archive" },
+      { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Erro desconhecido ao consultar a frota FlightLogger.";
-    const code =
-      error instanceof Error && error.name === "FLIGHTLOGGER_NOT_CONFIGURED"
-        ? "FLIGHTLOGGER_NOT_CONFIGURED"
-        : "FLIGHTLOGGER_API_ERROR";
-
-    console.error("FlightLogger fleet sync failed", error);
-
-    return NextResponse.json(
-      { error: message, code },
-      {
-        status: code === "FLIGHTLOGGER_NOT_CONFIGURED" ? 503 : 502,
-        headers: {
-          "Cache-Control": "no-store, max-age=0",
-        },
-      },
-    );
+    console.error("Fleet archive query failed", error);
+    return NextResponse.json({ error: "Não foi possível carregar a frota." }, { status: 503 });
   }
 }
