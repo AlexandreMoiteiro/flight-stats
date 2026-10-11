@@ -74,6 +74,7 @@ function sourceLabel(value: string): string {
   return value
     .replace("flightlogger-airnav-kml", "AirNav Radar / FlightLogger")
     .replace("adsb.lol-history", "adsb.lol historical")
+    .replace("adsb.aero-history", "adsb.aero historical")
     .replace("airplanes.live-history", "airplanes.live historical")
     .replace("historical-adsb", "Historical ADS-B");
 }
@@ -423,24 +424,61 @@ export function FlightTrackModal({ flight, onClose }: Props) {
         setLoadError(error.message);
         setPoints([]);
       } else {
-        setPoints(
-          (data ?? []).map((point) => ({
-            observed_at: String(point.observed_at),
-            lat: Number(point.lat),
-            lon: Number(point.lon),
-            altitude_ft: numberValue(point.altitude_ft),
-            ground_speed_kt: numberValue(point.ground_speed_kt),
-            track_deg: numberValue(point.track_deg),
-            vertical_rate_fpm: numberValue(point.vertical_rate_fpm),
-            callsign: String(point.callsign ?? "").trim() || null,
-            icao_hex: String(point.icao_hex ?? "").trim().toUpperCase() || null,
-            source: String(point.source ?? "").trim() || null,
-          })).filter((point) =>
-            Number.isFinite(point.lat) && Number.isFinite(point.lon) &&
-            Math.abs(point.lat) <= 85 && Math.abs(point.lon) <= 180,
-          ).sort((a,b) => new Date(a.observed_at).getTime() - new Date(b.observed_at).getTime()),
-        );
+        const databasePoints: TrackPoint[] = (data ?? []).map((point) => ({
+          observed_at: String(point.observed_at),
+          lat: Number(point.lat),
+          lon: Number(point.lon),
+          altitude_ft: numberValue(point.altitude_ft),
+          ground_speed_kt: numberValue(point.ground_speed_kt),
+          track_deg: numberValue(point.track_deg),
+          vertical_rate_fpm: numberValue(point.vertical_rate_fpm),
+          callsign: String(point.callsign ?? "").trim() || null,
+          icao_hex: String(point.icao_hex ?? "").trim().toUpperCase() || null,
+          source: String(point.source ?? "").trim() || null,
+        })).filter((point) =>
+          Number.isFinite(point.lat) && Number.isFinite(point.lon) &&
+          Math.abs(point.lat) <= 85 && Math.abs(point.lon) <= 180,
+        ).sort((a,b) => a.observed_at.localeCompare(b.observed_at));
+
+        let selected = databasePoints;
+        const span = (values: TrackPoint[]) => values.length < 2 ? 0 :
+          new Date(values[values.length - 1].observed_at).getTime() -
+          new Date(values[0].observed_at).getTime();
+        const blockSpan = new Date(flight.on_block).getTime() -
+          new Date(flight.off_block).getTime();
+        const needsEnrichment = databasePoints.length < 120 ||
+          (blockSpan > 0 && span(databasePoints) < blockSpan * 0.6);
+
+        if (needsEnrichment) {
+          try {
+            const response = await fetch(
+              "/api/adsb-archive?flightId=" + encodeURIComponent(flight.id),
+              { cache: "no-store" },
+            );
+            if (response.ok) {
+              const result = await response.json() as { points?: TrackPoint[] };
+              const alternate = (result.points ?? []).filter((point) =>
+                Number.isFinite(point.lat) && Number.isFinite(point.lon) &&
+                Boolean(point.observed_at),
+              ).sort((a,b) => a.observed_at.localeCompare(b.observed_at));
+              // Use a historical provider only if it provides a wider trace.
+              // Never combine unrelated aircraft positions or create fake waypoints.
+              if (alternate.length >= 2 && (
+                selected.length < 2 ||
+                (span(alternate) > span(selected) * 1.2 &&
+                  alternate.length >= selected.length * 0.7)
+              )) {
+                selected = alternate;
+              }
+            }
+          } catch {
+            // Archive is optional: local Supabase evidence remains available.
+          }
+        }
+        if (!active) return;
+        setPoints(selected);
       }
+    }
 
       setLoading(false);
     }
