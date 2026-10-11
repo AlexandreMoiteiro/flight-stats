@@ -14,14 +14,13 @@ import {
   Download,
   Gauge,
   Plus,
-  Database,
   Maximize2,
   Minimize2,
   Moon,
   Plane,
-  RefreshCw,
   Search,
   TimerReset,
+  Trash2,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
@@ -137,6 +136,7 @@ function role(flight: Flight): string {
   if (safe(flight.pilot_in_command_minutes) > 0) return "PIC";
   if (safe(flight.dual_minutes) > 0) return "DUAL";
   if (safe(flight.co_pilot_minutes) > 0) return "COP";
+  if (safe(flight.flight_instructor_minutes) > 0) return "INSTR";
   return "—";
 }
 
@@ -697,6 +697,8 @@ export default function Home() {
   const [typeCode, setTypeCode] = useState("all");
   const [selectedFlight, setSelectedFlight] = useState<Flight | null>(null);
   const [showNewFlight, setShowNewFlight] = useState(false);
+  const [deletingFlightId, setDeletingFlightId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [printAll, setPrintAll] = useState(false);
   const [selectedLogIndex, setSelectedLogIndex] = useState<number | null>(null);
   const [logbookZoom, setLogbookZoom] = useState(0);
@@ -772,6 +774,28 @@ export default function Home() {
   useEffect(() => {
     setFlightPage(1);
   }, [search, year, aircraft, registration, kind, typeCode]);
+
+  const deleteManualFlight = async (flight: Flight) => {
+    if (!flight.id.startsWith("manual-") || deletingFlightId) return;
+    if (!window.confirm("Apagar o registo de " + displayDate(flight.date) + "?")) return;
+    setDeleteError(null);
+    setDeletingFlightId(flight.id);
+    try {
+      const response = await fetch("/api/flights", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: flight.id }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Não foi possível apagar.");
+      await load();
+      setSelectedLogIndex(null);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Erro ao apagar voo.");
+    } finally {
+      setDeletingFlightId(null);
+    }
+  };
 
   const jumpToLog = () => {
     window.requestAnimationFrame(() =>
@@ -1183,18 +1207,6 @@ export default function Home() {
                 <Download size={14} />
                 Exportar PDF
               </button>
-              <button
-                type="button"
-                onClick={() => void load()}
-                disabled={loading}
-                className="fs-button fs-button--primary"
-              >
-                <RefreshCw
-                  size={14}
-                  className={loading ? "animate-spin" : ""}
-                />
-                Recarregar
-              </button>
             </div>
           </div>
 
@@ -1315,14 +1327,6 @@ export default function Home() {
               </div>
             </section>
 
-            <div className="fs-archive-note">
-              <div className="fs-archive-note-icon"><Database size={20} /></div>
-              <div>
-                <strong>Histórico Sevenair preservado</strong>
-                <p>{flights.filter((flight) => !flight.id.startsWith("manual-")).length} registos arquivados no Supabase. Sem sincronizações com a API do FlightLogger. Acrescenta os próximos voos manualmente.</p>
-              </div>
-              <button type="button" onClick={() => setShowNewFlight(true)}><Plus size={16} /> Novo registo</button>
-            </div>
             <nav className="fs-section-nav" aria-label="Secções do Flight Stats">
               <span>EXPLORAR / 01—04</span>
               <a href="#activity">Atividade</a>
@@ -1496,6 +1500,7 @@ export default function Home() {
 
               {typeCode !== "all" ? <p className="fs-filter-context">TIPO ICAO / {typeCode} <button type="button" onClick={() => setTypeCode("all")}>Remover ×</button></p> : null}
 
+              {deleteError ? <div className="fs-entry-error" role="alert">{deleteError}</div> : null}
               {filtered.length === 0 ? <div className="fs-empty">Não há registos para estes filtros. <button type="button" onClick={clearFilters}>Mostrar todos</button></div> : null}
               <div className="overflow-x-auto fs-flight-table-wrap">
                 <table className="fs-table fs-flight-table min-w-[1160px] w-full">
@@ -1513,6 +1518,7 @@ export default function Home() {
                       <th className="text-right">IFR</th>
                       <th className="text-right">Noite</th>
                       <th className="text-right">LDG</th>
+                      <th aria-label="Ações"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1586,6 +1592,17 @@ export default function Home() {
                         <td className="text-right">
                           {(flight.landings_day ?? 0) + (flight.landings_night ?? 0)}
                         </td>
+                        <td>
+                          {flight.id.startsWith("manual-") ? (
+                            <button type="button" className="fs-delete-flight"
+                              title="Apagar voo" aria-label="Apagar voo manual"
+                              disabled={deletingFlightId === flight.id}
+                              onClick={(event) => { event.stopPropagation(); void deleteManualFlight(flight); }}
+                              onKeyDown={(event) => event.stopPropagation()}>
+                              <Trash2 size={15} />
+                            </button>
+                          ) : null}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1596,7 +1613,21 @@ export default function Home() {
                 {visibleFlights.map((flight) => {
                   const sim = isSimulator(flight);
                   const content = <><span className="fs-mobile-flight-top"><span>{displayDate(flight.date)}</span><Badge>{role(flight)}</Badge></span><strong>{sim ? "FSTD" : `${flight.departure_airport_name || "—"} → ${flight.arrival_airport_name || "—"}`}</strong><span className="fs-mobile-flight-bottom"><span>{sim ? fstdLabel(flight) : `${icaoType(flight.type_of_aircraft)} · ${flight.registration || "—"}`}</span><b>{hm(sim ? flight.synthetic_training_minutes : flight.total_minutes)}</b></span></>;
-                  return sim ? <div className="fs-mobile-flight" key={flight.id}>{content}</div> : <button type="button" className="fs-mobile-flight" key={flight.id} onClick={() => setSelectedFlight(flight)} aria-label={`Abrir trajetória de ${displayDate(flight.date)}, ${flight.departure_airport_name || "—"} para ${flight.arrival_airport_name || "—"}`}>{content}</button>;
+                  return (
+                    <div className="fs-mobile-flight-row" key={flight.id}>
+                      {sim ? <div className="fs-mobile-flight">{content}</div> : (
+                        <button type="button" className="fs-mobile-flight" onClick={() => setSelectedFlight(flight)}
+                          aria-label={`Abrir trajetória de ${displayDate(flight.date)}`}>{content}</button>
+                      )}
+                      {flight.id.startsWith("manual-") ? (
+                        <button type="button" className="fs-delete-flight fs-delete-flight--mobile"
+                          onClick={() => void deleteManualFlight(flight)}
+                          disabled={deletingFlightId === flight.id} aria-label="Apagar voo manual">
+                          <Trash2 size={16} />
+                        </button>
+                      ) : null}
+                    </div>
+                  );
                 })}
               </div>
 
@@ -1782,12 +1813,6 @@ export default function Home() {
                 </div>
               </div>
             </div>
-
-            <p className="fs-logbook-hint">
-              Clica numa linha para a destacar. Usa ↑ e ↓ para avançar linha a
-              linha; a página muda automaticamente. Usa + / − para aumentar a
-              caderneta.
-            </p>
 
             <div className="logbook-scroll">
               <Logbook
