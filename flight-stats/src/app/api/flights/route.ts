@@ -1,5 +1,4 @@
 import { createClient } from "@supabase/supabase-js";
-import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 import type { Flight, FlightLoggerProfile, FlightStatsResponse } from "@/lib/flight-types";
@@ -34,11 +33,15 @@ function minutes(value: unknown, max = 1440): number {
   return n;
 }
 
-function authorized(candidate: string | null, secret: string | undefined): boolean {
-  if (!candidate || !secret) return false;
-  const a = Buffer.from(candidate);
-  const b = Buffer.from(secret);
-  return a.length === b.length && timingSafeEqual(a, b);
+function editorClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const secret = process.env.FLIGHT_STATS_EDITOR_KEY;
+  if (!url || !anonKey || !secret) throw new Error("Database editor not configured");
+  return createClient(url, anonKey, {
+    auth: { persistSession: false },
+    global: { headers: { "x-flight-stats-editor-key": secret } },
+  });
 }
 
 function validateFlight(value: unknown): Flight {
@@ -50,8 +53,8 @@ function validateFlight(value: unknown): Flight {
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date + "T00:00:00Z"))) {
     throw new Error("Indica uma data válida.");
   }
-  const flightType = textField(input.flight_type, 8) ?? "DUAL";
-  if (!allowedFlightTypes.has(flightType)) throw new Error("Tipo de voo inválido.");
+  const flightType = textField(input.flight_type, 8);
+  if (flightType && !allowedFlightTypes.has(flightType)) throw new Error("Tipo de voo inválido.");
   const sim = flightType === "SIM";
 
   const flight: Record<string, unknown> = {
@@ -74,6 +77,7 @@ function validateFlight(value: unknown): Flight {
   for (const field of countFields) flight[field] = minutes(input[field], 30);
 
   if (sim) {
+    if (!flight.fstd_type) throw new Error("Indica o tipo FSTD.");
     flight.synthetic_training_minutes = Math.max(
       Number(flight.synthetic_training_minutes), Number(flight.total_minutes),
     );
@@ -90,6 +94,16 @@ function validateFlight(value: unknown): Flight {
     if (Number(flight.total_minutes) < 1) throw new Error("O tempo total de voo tem de ser superior a zero.");
     if (Number(flight.day_minutes) + Number(flight.night_minutes) > Number(flight.total_minutes)) {
       throw new Error("Dia + noite não podem ultrapassar o tempo total.");
+    }
+    for (const field of [
+      "night_minutes", "single_engine_vfr_minutes", "single_engine_ifr_minutes",
+      "multi_engine_vfr_minutes", "multi_engine_ifr_minutes", "multi_pilot_minutes",
+      "pilot_in_command_minutes", "co_pilot_minutes", "dual_minutes",
+      "flight_instructor_minutes", "spic_minutes",
+    ]) {
+      if (Number(flight[field]) > Number(flight.total_minutes)) {
+        throw new Error("Nenhum tempo pode ultrapassar o tempo total.");
+      }
     }
     if (Number(flight.spic_minutes) > Number(flight.pilot_in_command_minutes)) {
       throw new Error("SPIC não pode ultrapassar o tempo PIC.");
@@ -146,20 +160,10 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.FLIGHT_STATS_EDITOR_KEY;
-  if (!authorized(request.headers.get("x-flight-stats-editor-key"), secret)) {
-    return NextResponse.json({ error: "Chave de edição inválida." }, { status: 401, headers: noStore });
-  }
   try {
     const raw = await request.json();
     const flight = validateFlight(raw);
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!url || !anonKey || !secret) throw new Error("Database not configured");
-    const editor = createClient(url, anonKey, {
-      auth: { persistSession: false },
-      global: { headers: { "x-flight-stats-editor-key": secret } },
-    });
+    const editor = editorClient();
     const { error } = await editor.from("flight_stats_flights").insert({
       id: flight.id, date: flight.date, registration: flight.registration,
       source: "manual", payload: flight,
@@ -174,5 +178,33 @@ export async function POST(request: NextRequest) {
       { error: userError ? message : "Não foi possível guardar o voo. Verifica os dados e tenta novamente." },
       { status: userError ? 400 : 500, headers: noStore },
     );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const body: unknown = await request.json();
+    const id = body && typeof body === "object" && "id" in body
+      ? String(body.id) : "";
+    if (!/^manual-[0-9a-f-]{36}$/.test(id)) {
+      return NextResponse.json({ error: "Só é possível apagar voos adicionados manualmente." },
+        { status: 400, headers: noStore });
+    }
+    const editor = editorClient();
+    const { data, error } = await editor
+      .from("flight_stats_flights")
+      .delete()
+      .eq("id", id)
+      .eq("source", "manual")
+      .select("id")
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return NextResponse.json({ error: "Voo não encontrado." },
+      { status: 404, headers: noStore });
+    return NextResponse.json({ deleted: true }, { headers: noStore });
+  } catch (error) {
+    console.error("Manual flight deletion failed", error);
+    return NextResponse.json({ error: "Não foi possível apagar o voo." },
+      { status: 500, headers: noStore });
   }
 }
