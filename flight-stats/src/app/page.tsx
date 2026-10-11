@@ -718,7 +718,7 @@ export default function Home() {
 
       if (!response.ok || "error" in payload) {
         throw Object.assign(
-          new Error("error" in payload ? payload.error : "Erro ao sincronizar."),
+          new Error("error" in payload ? payload.error : "Erro ao carregar."),
           {
             code: "code" in payload ? payload.code : undefined,
           },
@@ -731,7 +731,7 @@ export default function Home() {
         error:
           caught instanceof Error
             ? caught.message
-            : "Erro desconhecido ao sincronizar.",
+            : "Erro desconhecido ao carregar.",
         code:
           caught && typeof caught === "object" && "code" in caught
             ? String(caught.code ?? "")
@@ -1232,7 +1232,7 @@ export default function Home() {
       <div className="mx-auto max-w-[1840px] px-4 py-5 sm:px-6 lg:px-8">
         {loading && !data ? (
           <div className="fs-notice" role="status">
-            A carregar os voos guardados no Supabase…
+            A carregar voos…
           </div>
         ) : null}
 
@@ -1254,12 +1254,6 @@ export default function Home() {
                 <div>
                   <span>PILOT</span>
                   <strong>{profileName || "—"}</strong>
-                </div>
-                <div>
-                  <span>ARQUIVO ATÉ / UTC</span>
-                  <strong>
-                    {displayDate(data.syncedAt)} {utcTime(data.syncedAt)}Z
-                  </strong>
                 </div>
               </div>
 
@@ -1513,8 +1507,9 @@ export default function Home() {
                       <th>PIC / Instrutor</th>
                       <th className="text-right">Total</th>
                       <th className="text-right">PIC</th>
-                      <th className="text-right">SPIC</th>
+                      <th className="text-right">Co-pilot</th>
                       <th className="text-right">Dual</th>
+                      <th className="text-right">Instr.</th>
                       <th className="text-right">IFR</th>
                       <th className="text-right">Noite</th>
                       <th className="text-right">LDG</th>
@@ -1585,8 +1580,9 @@ export default function Home() {
                           )}
                         </td>
                         <td className="text-right font-mono">{hm(flight.pilot_in_command_minutes)}</td>
-                        <td className="text-right font-mono">{hm(flight.spic_minutes)}</td>
+                        <td className="text-right font-mono">{hm(flight.co_pilot_minutes)}</td>
                         <td className="text-right font-mono">{hm(flight.dual_minutes)}</td>
+                        <td className="text-right font-mono">{hm(flight.flight_instructor_minutes)}</td>
                         <td className="text-right font-mono">{hm(ifrMinutes(flight))}</td>
                         <td className="text-right font-mono">{hm(flight.night_minutes)}</td>
                         <td className="text-right">
