@@ -465,8 +465,10 @@ export function FlightTrackModal({ flight, onClose }: Props) {
               // Never combine unrelated aircraft positions or create fake waypoints.
               if (alternate.length >= 2 && (
                 selected.length < 2 ||
-                (span(alternate) > span(selected) * 1.2 &&
-                  alternate.length >= selected.length * 0.7)
+                ((span(alternate) > span(selected) * 1.2 &&
+                  alternate.length >= selected.length * 0.7) ||
+                 (span(alternate) >= span(selected) * 0.9 &&
+                  alternate.length >= selected.length * 1.35))
               )) {
                 selected = alternate;
               }
