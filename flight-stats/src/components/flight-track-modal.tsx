@@ -478,7 +478,6 @@ export function FlightTrackModal({ flight, onClose }: Props) {
         if (!active) return;
         setPoints(selected);
       }
-    }
 
       setLoading(false);
     }
